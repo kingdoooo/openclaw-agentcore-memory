@@ -53,7 +53,7 @@ openclaw logs --follow --filter="agentcore"
 **What**: AWS connectivity + config display via CLI.
 
 ```bash
-openclaw agentcore status
+openclaw agentcore-status
 ```
 
 **Expected output**:
@@ -85,7 +85,7 @@ Use the agentcore_store tool to save this fact: "The project deadline is March 3
 
 **Verify via CLI**:
 ```bash
-openclaw agentcore search "project deadline"
+openclaw agentcore-search "project deadline"
 ```
 
 **Pass criteria**: Tool returns `{ stored: true, recordIds: [...] }`. CLI search finds the record.
@@ -137,7 +137,7 @@ Use agentcore_correct to update the record from the previous recall. Change the 
 
 3. Verify event was created:
    ```bash
-   openclaw agentcore list --strategy SEMANTIC
+   openclaw agentcore-list --strategy SEMANTIC
    ```
 
 **Pass criteria**: List shows records extracted from the conversation (AgentCore strategies process events asynchronously, may take 30-60 seconds).
@@ -185,7 +185,7 @@ Use agentcore_correct to update the record from the previous recall. Change the 
 
 3. Verify deletion:
    ```bash
-   openclaw agentcore search "deadline"
+   openclaw agentcore-search "deadline"
    ```
    **Expected**: No records found.
 
@@ -205,20 +205,20 @@ Use agentcore_correct to update the record from the previous recall. Change the 
 
 2. Trigger sync manually:
    ```bash
-   openclaw agentcore sync
+   openclaw agentcore-sync
    ```
    **Expected**: `Synced 1 files.`
 
 3. Trigger sync again (no changes):
    ```bash
-   openclaw agentcore sync
+   openclaw agentcore-sync
    ```
    **Expected**: `Synced 0 files.` (hash hasn't changed)
 
 4. Modify the file and sync again:
    ```bash
    echo "\n- Deploy on Fridays is forbidden" >> ~/.openclaw/workspace/MEMORY.md
-   openclaw agentcore sync
+   openclaw agentcore-sync
    ```
    **Expected**: `Synced 1 files.` (hash changed)
 
@@ -265,8 +265,8 @@ Use agentcore_episodes to search for "error handling patterns"
 ### Stats
 
 ```bash
-openclaw agentcore stats
-openclaw agentcore stats --scope agent:main
+openclaw agentcore-stats
+openclaw agentcore-stats --scope agent:main
 ```
 
 ---
@@ -309,21 +309,21 @@ check "plugin-listed" "openclaw plugins list" "memory-agentcore"
 
 echo ""
 echo "2. Connection"
-check "connection-ok" "openclaw agentcore status" "Connection: OK"
+check "connection-ok" "openclaw agentcore-status" "Connection: OK"
 
 echo ""
 echo "3. CLI Search (baseline)"
-check "search-empty" "openclaw agentcore search 'smoke-test-unique-marker-$(date +%s)'" "No records found"
+check "search-empty" "openclaw agentcore-search 'smoke-test-unique-marker-$(date +%s)'" "No records found"
 
 echo ""
 echo "4. Stats"
-check "stats-connected" "openclaw agentcore stats" "SEMANTIC"
+check "stats-connected" "openclaw agentcore-stats" "SEMANTIC"
 
 echo ""
 echo "5. File Sync"
 SYNC_TEST_FILE="$(mktemp)"
 echo "# Smoke test $(date)" > "$SYNC_TEST_FILE"
-check "sync-runs" "openclaw agentcore sync" "Synced"
+check "sync-runs" "openclaw agentcore-sync" "Synced"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

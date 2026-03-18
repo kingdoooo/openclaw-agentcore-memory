@@ -45,17 +45,14 @@ If AWS credentials fail, STOP and tell the user:
 ### Step 1.2: Clone Repository
 
 ```bash
-# Check if already cloned
 if [ -d ~/projects/openclaw-agentcore-memory ]; then
   echo "Repository already exists, pulling latest..."
   cd ~/projects/openclaw-agentcore-memory && git pull
 else
   mkdir -p ~/projects
-  git clone https://github.com/anthropics/openclaw-agentcore-memory.git ~/projects/openclaw-agentcore-memory
+  git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git ~/projects/openclaw-agentcore-memory
 fi
 ```
-
-**NOTE**: Replace the GitHub URL with the actual repository URL if different. Ask the user for the correct URL if unsure.
 
 ### Step 1.3: Install Dependencies
 
@@ -79,8 +76,6 @@ Using `-l` (link mode) so future `git pull` updates take effect without reinstal
 Ask the user for their `memoryId` if not already known. Then configure:
 
 ```bash
-# Set the plugin config in openclaw.json
-# Read current config first, then add the plugin entry
 openclaw config set plugins.entries.memory-agentcore.enabled true
 openclaw config set plugins.entries.memory-agentcore.config.memoryId "<MEMORY_ID>"
 ```
@@ -93,7 +88,6 @@ If `openclaw config set` doesn't support nested plugin config, edit the config f
   config: {
     memoryId: "<MEMORY_ID>",
     // awsRegion defaults to us-east-1
-    // awsProfile: "default",  // uncomment if using named profile
   },
 }
 ```
@@ -111,8 +105,6 @@ echo "verify" > ~/.openclaw/.agentcore-setup-checkpoint
 Tell the user:
 
 > "Plugin installed and configured. I need to restart the gateway for the plugin to load. After restart, send me any message and I will automatically run verification."
->
-> "Restarting gateway now..."
 
 Then execute:
 
@@ -133,13 +125,13 @@ Run each test sequentially. Collect results and report a summary at the end.
 ### Test 1: Plugin Load
 
 ```bash
-openclaw plugins list 2>/dev/null | grep -q "memory-agentcore" && echo "PASS: Plugin loaded" || echo "FAIL: Plugin not found in plugins list"
+openclaw plugins list 2>/dev/null | grep -q "memory-agentcore" && echo "PASS" || echo "FAIL"
 ```
 
 ### Test 2: Connection Status
 
 ```bash
-openclaw agentcore status 2>&1
+openclaw agentcore-status 2>&1
 ```
 
 Check that output contains `Connection: OK`. If it says `FAILED`, report the error.
@@ -147,14 +139,14 @@ Check that output contains `Connection: OK`. If it says `FAILED`, report the err
 ### Test 3: CLI Search (Baseline)
 
 ```bash
-openclaw agentcore search "setup-verification-baseline-test" 2>&1
+openclaw agentcore-search "setup-verification-baseline-test" 2>&1
 ```
 
-Expected: `No records found` (baseline - no records for this unique query).
+Expected: `No records found` (baseline).
 
 ### Test 4: Tool - Store Memory
 
-Use the `agentcore_store` tool to save a test record:
+Use the `agentcore_store` tool:
 
 ```
 content: "AgentCore setup verification test record - installed on <today's date>"
@@ -164,11 +156,11 @@ scope: "global"
 tags: ["setup-test", "verification"]
 ```
 
-Check that the result contains `stored: true`.
+Check that the result contains `"stored": true`.
 
 ### Test 5: Tool - Recall Memory
 
-Use the `agentcore_recall` tool to search for the test record:
+Use the `agentcore_recall` tool:
 
 ```
 query: "AgentCore setup verification test record"
@@ -186,7 +178,7 @@ scope: "global"
 max_results: 5
 ```
 
-Check that it returns without error and shows at least one record.
+Check that it returns without error.
 
 ### Test 7: Tool - Stats
 
@@ -196,7 +188,7 @@ Use the `agentcore_stats` tool:
 scope: "global"
 ```
 
-Check that `connected: true`.
+Check that `"connected": true`.
 
 ### Test 8: Tool - Correct
 
@@ -207,11 +199,23 @@ record_id: <ID from Test 4>
 new_content: "AgentCore setup verification - CORRECTED - plugin working correctly"
 ```
 
-Check that `corrected: true`.
+Check that `"corrected": true`.
 
-### Test 9: Tool - Forget (Cleanup)
+### Test 9: Tool - Share
 
-Use the `agentcore_forget` tool to clean up the test record:
+Use the `agentcore_share` tool:
+
+```
+content: "Shared verification fact: memory-agentcore is operational"
+target_scopes: ["agent:test-agent"]
+category: "fact"
+```
+
+Check that `"shared": true`.
+
+### Test 10: Tool - Forget (Cleanup)
+
+Use the `agentcore_forget` tool to clean up all test records:
 
 ```
 search_query: "AgentCore setup verification"
@@ -219,17 +223,32 @@ confirm: true
 scope: "global"
 ```
 
-Check that `deleted: true`.
+Check that `"deleted": true`.
 
-### Test 10: File Sync
+### Test 11: File Sync
 
 ```bash
-openclaw agentcore sync 2>&1
+openclaw agentcore-sync 2>&1
 ```
 
 Check output contains `Synced` (0 or more files is OK, as long as no error).
 
-### Test 11: Episodic Search
+### Test 12: CLI Remember
+
+```bash
+openclaw agentcore-remember "CLI remember test from setup verification"
+```
+
+Check output says `Stored`.
+
+Then clean up:
+
+```bash
+openclaw agentcore-search "CLI remember test" --show-ids 2>&1
+# Delete by ID if found
+```
+
+### Test 13: Episodic Search
 
 Use the `agentcore_episodes` tool:
 
@@ -238,7 +257,7 @@ query: "verification test"
 top_k: 3
 ```
 
-This may return 0 results (episodic memory needs time to extract). No error = pass.
+May return 0 results (episodic needs time to extract). No error = pass.
 
 ### Results Summary
 
@@ -248,7 +267,7 @@ After all tests, remove the checkpoint:
 rm -f ~/.openclaw/.agentcore-setup-checkpoint
 ```
 
-Then report results in this format:
+Then report:
 
 ```
 === memory-agentcore Verification Results ===
@@ -261,19 +280,19 @@ Then report results in this format:
  6. Search/List:     [PASS/FAIL]
  7. Stats:           [PASS/FAIL]
  8. Correct Memory:  [PASS/FAIL]
- 9. Forget/Delete:   [PASS/FAIL]
-10. File Sync:       [PASS/FAIL]
-11. Episodic Search: [PASS/FAIL]
+ 9. Share Memory:    [PASS/FAIL]
+10. Forget/Delete:   [PASS/FAIL]
+11. File Sync:       [PASS/FAIL]
+12. CLI Remember:    [PASS/FAIL]
+13. Episodic Search: [PASS/FAIL]
 
-Total: X/11 passed
-
-[If all pass]: "memory-agentcore plugin is fully operational."
-[If some fail]: "Some tests failed. See details above for troubleshooting."
+Total: X/13 passed
 ```
 
 ### Troubleshooting (If Tests Fail)
 
-- **Plugin not loaded**: Check `openclaw plugins list`, verify `plugins.entries` config, restart gateway
-- **Connection FAILED**: Check `aws sts get-caller-identity`, verify memoryId is correct
+- **Plugin not loaded**: `openclaw plugins list`, verify `plugins.entries` config, restart gateway
+- **Connection FAILED**: `aws sts get-caller-identity`, verify memoryId is correct
 - **Store/Recall fail**: Check IAM permissions include `bedrock-agentcore:*`
 - **File sync error**: Check workspace has MEMORY.md or USER.md files
+- **Share fail**: Target scope namespace may not exist yet; this is OK for first run

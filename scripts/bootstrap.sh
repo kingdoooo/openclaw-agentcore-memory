@@ -5,7 +5,7 @@
 # is installed (chicken-and-egg: plugin skill is only available after install).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<user>/openclaw-agentcore-memory/main/scripts/bootstrap.sh | bash -s -- <memoryId> [region]
+#   curl -fsSL https://raw.githubusercontent.com/kingdoooo/openclaw-agentcore-memory/main/scripts/bootstrap.sh | bash -s -- <memoryId> [region]
 #
 # Or run locally:
 #   bash scripts/bootstrap.sh mem-xxxxxxxxxx us-east-1
@@ -14,7 +14,7 @@ set -euo pipefail
 
 MEMORY_ID="${1:-}"
 AWS_REGION="${2:-us-east-1}"
-REPO_URL="${AGENTCORE_REPO_URL:-https://github.com/anthropics/openclaw-agentcore-memory.git}"
+REPO_URL="${AGENTCORE_REPO_URL:-https://github.com/kingdoooo/openclaw-agentcore-memory.git}"
 INSTALL_DIR="${HOME}/projects/openclaw-agentcore-memory"
 
 RED='\033[0;31m'

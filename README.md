@@ -77,18 +77,20 @@ Uses the AWS SDK credential chain (in order):
 | `agentcore_correct` | Update/correct existing memory (retry+fallback to create) |
 | `agentcore_search` | List/filter records by namespace and strategy |
 | `agentcore_stats` | Memory statistics and connection status |
+| `agentcore_share` | Share memory across multiple scopes/namespaces |
 | `agentcore_episodes` | Search episodic memory for past experiences |
 
 ## CLI Commands
 
 ```bash
-openclaw agentcore status              # Connection check + config
-openclaw agentcore search <query>      # Semantic search
-openclaw agentcore list [--scope] [--strategy]  # List records
-openclaw agentcore forget <id>         # Delete record
-openclaw agentcore episodes <query>    # Search episodic memory
-openclaw agentcore stats [--scope]     # Strategy breakdown
-openclaw agentcore sync                # Manual file sync
+openclaw agentcore-status              # Connection check + config
+openclaw agentcore-search <query>      # Semantic search
+openclaw agentcore-list [--scope] [--strategy]  # List records
+openclaw agentcore-forget <id>         # Delete record
+openclaw agentcore-episodes <query>    # Search episodic memory
+openclaw agentcore-stats [--scope]     # Strategy breakdown
+openclaw agentcore-sync                # Manual file sync
+openclaw agentcore-remember <fact>     # Store a fact directly
 ```
 
 ## Enterprise Shared Memory

@@ -65,15 +65,15 @@ echo ""
 # --- Phase 2: Connection & Config ---
 echo "Phase 2: Connection & Config"
 check "status-connection" \
-  "openclaw agentcore status 2>/dev/null" \
+  "openclaw agentcore-status 2>/dev/null" \
   "Connection: OK"
 
 check "status-memory-id" \
-  "openclaw agentcore status 2>/dev/null" \
+  "openclaw agentcore-status 2>/dev/null" \
   "Memory ID:"
 
 check "status-strategies" \
-  "openclaw agentcore status 2>/dev/null" \
+  "openclaw agentcore-status 2>/dev/null" \
   "Strategies:"
 
 echo ""
@@ -84,15 +84,15 @@ echo "Phase 3: CLI Commands"
 # Search for something that shouldn't exist
 UNIQUE_MARKER="smoke-test-nonexistent-$(date +%s)"
 check "search-no-results" \
-  "openclaw agentcore search '$UNIQUE_MARKER' 2>/dev/null" \
+  "openclaw agentcore-search '$UNIQUE_MARKER' 2>/dev/null" \
   "No records found"
 
 check "stats-runs" \
-  "openclaw agentcore stats 2>/dev/null" \
+  "openclaw agentcore-stats 2>/dev/null" \
   "SEMANTIC"
 
 check "list-runs" \
-  "openclaw agentcore list 2>/dev/null" \
+  "openclaw agentcore-list 2>/dev/null" \
   ""  # Just verify it doesn't error
 
 echo ""
@@ -101,7 +101,7 @@ echo ""
 echo "Phase 4: File Sync"
 
 # Sync should run without error
-SYNC_RESULT=$(openclaw agentcore sync 2>/dev/null) || SYNC_RESULT="ERROR"
+SYNC_RESULT=$(openclaw agentcore-sync 2>/dev/null) || SYNC_RESULT="ERROR"
 printf "  [%-30s] ... " "sync-runs"
 if echo "$SYNC_RESULT" | grep -qE "Synced [0-9]+ files|File sync is disabled"; then
   printf "${GREEN}PASS${NC}\n"

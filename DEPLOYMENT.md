@@ -25,7 +25,7 @@ SSH into your EC2, then run:
 
 ```bash
 # One-liner: clone + install + configure
-curl -fsSL https://raw.githubusercontent.com/<user>/openclaw-agentcore-memory/main/scripts/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/kingdoooo/openclaw-agentcore-memory/main/scripts/bootstrap.sh \
   | bash -s -- mem-xxxxxxxxxx us-east-1
 
 # Then restart
@@ -38,7 +38,7 @@ After restart, send any message to your agent. It will detect the checkpoint fil
 
 If your OpenClaw agent has exec tool access, just tell it:
 
-> "Clone https://github.com/<user>/openclaw-agentcore-memory, install it as an OpenClaw plugin, configure it with memoryId mem-xxxxxxxxxx, and restart the gateway."
+> "Clone https://github.com/kingdoooo/openclaw-agentcore-memory, install it as an OpenClaw plugin, configure it with memoryId mem-xxxxxxxxxx, and restart the gateway."
 
 The agent will:
 1. Run `git clone` + `npm install` + `openclaw plugins install -l`
@@ -57,7 +57,7 @@ If you want the full automated experience with the skill:
 
 ```bash
 # SSH into EC2 - copy just the skill first
-git clone https://github.com/<user>/openclaw-agentcore-memory.git /tmp/agentcore-mem
+git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git /tmp/agentcore-mem
 cp -r /tmp/agentcore-mem/skills/agentcore-setup ~/.openclaw/skills/
 openclaw gateway restart
 ```
@@ -259,7 +259,7 @@ Or use the AWS Console: Bedrock > AgentCore > Memory > Create.
 openclaw plugins list | grep memory-agentcore
 
 # 2. Check connection
-openclaw agentcore status
+openclaw agentcore-status
 
 # 3. Run smoke test
 bash ~/projects/openclaw-agentcore-memory/tests/smoke-test.sh
