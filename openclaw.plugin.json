@@ -1,0 +1,122 @@
+{
+  "id": "memory-agentcore",
+  "name": "AgentCore Memory",
+  "description": "Enterprise shared memory via Amazon Bedrock AgentCore Memory. Provides cloud-based shared memory with governance, managed extraction, and episodic learning.",
+  "version": "0.1.1",
+  "kind": "general",
+  "entry": "src/index.ts",
+  "skills": ["skills"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable/disable the plugin"
+      },
+      "memoryId": {
+        "type": "string",
+        "description": "AgentCore Memory resource ID (e.g. mem-xxxxxxxxxx)"
+      },
+      "awsRegion": {
+        "type": "string",
+        "default": "us-east-1",
+        "description": "AWS region"
+      },
+      "awsProfile": {
+        "type": "string",
+        "description": "Named AWS credential profile"
+      },
+      "strategies": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["SEMANTIC", "USER_PREFERENCE", "EPISODIC", "SUMMARY"],
+        "description": "Active extraction strategies"
+      },
+      "autoRecallTopK": {
+        "type": "number",
+        "default": 5,
+        "description": "Memories to inject before each turn (0=disabled)"
+      },
+      "autoCaptureEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Auto-capture after each agent run"
+      },
+      "autoCaptureMinLength": {
+        "type": "number",
+        "default": 30,
+        "description": "Min combined message length for capture"
+      },
+      "noiseFilterEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Filter greetings/heartbeats before capture"
+      },
+      "adaptiveRetrievalEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Skip trivial query retrieval"
+      },
+      "namespaceMode": {
+        "type": "string",
+        "enum": ["per-agent", "per-user", "shared", "custom"],
+        "default": "per-agent",
+        "description": "Namespace isolation mode"
+      },
+      "eventExpiryDays": {
+        "type": "number",
+        "default": 90,
+        "description": "Short-term event retention days"
+      },
+      "showScores": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include similarity scores in recalled memories"
+      },
+      "fileSyncEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Auto-sync MEMORY.md/USER.md/memory/*.md to AgentCore"
+      },
+      "fileSyncPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["MEMORY.md", "USER.md", "memory/*.md"],
+        "description": "Files to sync"
+      },
+      "maxRetries": {
+        "type": "number",
+        "default": 3,
+        "description": "AWS SDK retry attempts"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "default": 10000,
+        "description": "Per-request timeout"
+      },
+      "scopes": {
+        "type": "object",
+        "properties": {
+          "agentAccess": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": "Cross-agent read access"
+          },
+          "writeAccess": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": "Cross-agent write access"
+          }
+        }
+      }
+    },
+    "required": ["memoryId"]
+  }
+}

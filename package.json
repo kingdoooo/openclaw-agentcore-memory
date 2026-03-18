@@ -1,0 +1,20 @@
+{
+  "name": "memory-agentcore",
+  "version": "0.1.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "^3.1004.0",
+    "@aws-sdk/credential-providers": "^3.1004.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=0.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
