@@ -50,20 +50,23 @@ If AWS credentials fail, STOP and tell the user to configure IAM role, env vars,
 
 Ask the user which `--region` to use, then run:
 
+The `--memory-strategies` parameter uses **tagged union** format. Each strategy is an object with exactly one top-level key:
+
 ```bash
 aws bedrock-agentcore-control create-memory \
   --name "openclaw_memory" \
   --description "OpenClaw agent memory" \
   --event-expiry-duration 90 \
-  --strategies '[
-    {"strategyType":"SEMANTIC","namespaceType":"CUSTOM","namespace":"/semantic","configuration":{"semanticConfiguration":{}}},
-    {"strategyType":"USER_PREFERENCE","namespaceType":"CUSTOM","namespace":"/preferences","configuration":{"userPreferenceConfiguration":{}}},
-    {"strategyType":"SUMMARIZATION","namespaceType":"CUSTOM","namespace":"/summary/{sessionId}","configuration":{"summarizationConfiguration":{}}}
-  ]' \
+  --memory-strategies \
+    '{"semanticMemoryStrategy":{"name":"semantic","namespaces":["/semantic"]}}' \
+    '{"userPreferenceMemoryStrategy":{"name":"preferences","namespaces":["/preferences"]}}' \
+    '{"summaryMemoryStrategy":{"name":"summary","namespaces":["/summary/{sessionId}"]}}' \
   --region <REGION>
 ```
 
-> **⚠️ CRITICAL**: SUMMARIZATION strategy namespace **MUST** contain `{sessionId}` placeholder. The API rejects the request without it.
+> **⚠️ CRITICAL**: Summary strategy namespace **MUST** contain `{sessionId}` placeholder (e.g. `/summary/{sessionId}`). The API rejects the request without it.
+>
+> **Note**: The parameter is `--memory-strategies` (not `--strategies`). Each strategy is a separate argument, not a JSON array.
 
 Note the `memoryId` from the response.
 
