@@ -345,7 +345,11 @@ const plugin = {
               console.error("Client not initialized.");
               return;
             }
-            const q = query as string;
+            const q = (query as string).trim();
+            if (!q) {
+              console.error("Query must not be empty.");
+              return;
+            }
             const o = opts as { scope: string; topK: string };
             const namespace = scopeToNamespace(parseScope(o.scope));
             const records = await client.retrieveMemoryRecords({

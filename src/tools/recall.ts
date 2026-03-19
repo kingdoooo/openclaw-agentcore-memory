@@ -36,7 +36,13 @@ export function createRecallTool(
       required: ["query"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
-      const query = params.query as string;
+      const query = (params.query as string)?.trim();
+      if (!query) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: "query must not be empty", results: [], count: 0 }) }],
+          details: { error: "empty_query" },
+        };
+      }
       const limit = (params.limit as number) ?? 5;
       const scopeStr = (params.scope as string) ?? "global";
       const strategy = params.strategy as string | undefined;

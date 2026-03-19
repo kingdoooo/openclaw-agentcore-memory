@@ -30,7 +30,13 @@ export function createEpisodesTool(
       required: ["query"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
-      const query = params.query as string;
+      const query = (params.query as string)?.trim();
+      if (!query) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: "query must not be empty", episodes: [], count: 0 }) }],
+          details: { error: "empty_query" },
+        };
+      }
       const actorId = params.actor_id as string | undefined;
       const topK = (params.top_k as number) ?? 5;
 
