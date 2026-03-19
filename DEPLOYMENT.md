@@ -26,7 +26,7 @@ SSH into your EC2, then run:
 ```bash
 # One-liner: clone + install + configure
 curl -fsSL https://raw.githubusercontent.com/kingdoooo/openclaw-agentcore-memory/main/scripts/bootstrap.sh \
-  | bash -s -- mem-xxxxxxxxxx us-east-1
+  | bash -s -- MEMORY1234567890 us-east-1
 
 # Then restart
 openclaw gateway restart
@@ -38,7 +38,7 @@ After restart, send any message to your agent. It will detect the checkpoint fil
 
 If your OpenClaw agent has exec tool access, just tell it:
 
-> "Clone https://github.com/kingdoooo/openclaw-agentcore-memory, install it as an OpenClaw plugin, configure it with memoryId mem-xxxxxxxxxx, and restart the gateway."
+> "Clone https://github.com/kingdoooo/openclaw-agentcore-memory, install it as an OpenClaw plugin, configure it with memoryId MEMORY1234567890, and restart the gateway."
 
 The agent will:
 1. Run `git clone` + `npm install` + `openclaw plugins install -l`
@@ -64,7 +64,7 @@ openclaw gateway restart
 
 Now tell your agent:
 
-> "Use the agentcore-setup skill to install and configure the memory-agentcore plugin. My memoryId is mem-xxxxxxxxxx."
+> "Use the agentcore-setup skill to install and configure the memory-agentcore plugin. My memoryId is MEMORY1234567890."
 
 The agent follows the skill through both phases automatically.
 
@@ -102,12 +102,13 @@ The agent follows the skill through both phases automatically.
    ```json5
    {
      plugins: {
+       allow: ["memory-agentcore"],  // Required since OpenClaw 2026.3.12+
        entries: {
          "memory-agentcore": {
            enabled: true,
            config: {
-             memoryId: "mem-xxxxxxxxxx",   // Your AgentCore Memory ID
-             awsRegion: "us-east-1",       // Your region
+             memoryId: "MEMORY1234567890",   // From CreateMemory API response
+             awsRegion: "us-east-1",
              // awsProfile: "default",     // If using named profile
            },
          },
@@ -140,6 +141,7 @@ Skip `openclaw plugins install` and instead point OpenClaw directly at the repo:
 // ~/.openclaw/openclaw.json
 {
   plugins: {
+    allow: ["memory-agentcore"],
     load: {
       paths: ["~/projects/openclaw-agentcore-memory"],
     },
@@ -147,7 +149,7 @@ Skip `openclaw plugins install` and instead point OpenClaw directly at the repo:
       "memory-agentcore": {
         enabled: true,
         config: {
-          memoryId: "mem-xxxxxxxxxx",
+          memoryId: "MEMORY1234567890",
         },
       },
     },
@@ -206,7 +208,7 @@ Add to `~/.openclaw/.env`:
 AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxx
 AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxx
 AWS_REGION=us-east-1
-AGENTCORE_MEMORY_ID=mem-xxxxxxxxxx
+AGENTCORE_MEMORY_ID=MEMORY1234567890
 ```
 
 ### Alternative: Named Profile
@@ -220,7 +222,7 @@ aws_secret_access_key = xxxxxxxxxxxxxxxx
 # Plugin config
 {
   config: {
-    memoryId: "mem-xxxxxxxxxx",
+    memoryId: "MEMORY1234567890",
     awsProfile: "agentcore",
   }
 }
@@ -245,7 +247,7 @@ aws bedrock-agentcore create-memory \
   ]' \
   --region us-east-1
 
-# Note the memoryId from the response (e.g., "mem-xxxxxxxxxx")
+# Note the memoryId from the response (e.g., "MEMORY1234567890")
 ```
 
 Or use the AWS Console: Bedrock > AgentCore > Memory > Create.
@@ -277,11 +279,12 @@ For shared memory across multiple agents:
 ```json5
 {
   plugins: {
+    allow: ["memory-agentcore"],
     entries: {
       "memory-agentcore": {
         enabled: true,
         config: {
-          memoryId: "mem-xxxxxxxxxx",
+          memoryId: "MEMORY1234567890",
           namespaceMode: "shared",
           scopes: {
             agentAccess: {

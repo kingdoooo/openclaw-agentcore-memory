@@ -76,23 +76,29 @@ Using `-l` (link mode) so future `git pull` updates take effect without reinstal
 Ask the user for their `memoryId` if not already known. Then configure:
 
 ```bash
+openclaw config set plugins.allow '["memory-agentcore"]'
 openclaw config set plugins.entries.memory-agentcore.enabled true
 openclaw config set plugins.entries.memory-agentcore.config.memoryId "<MEMORY_ID>"
 ```
 
-If `openclaw config set` doesn't support nested plugin config, edit the config file directly. Read `~/.openclaw/openclaw.json`, add the following under `plugins.entries`:
+If `openclaw config set` doesn't support nested plugin config, edit `~/.openclaw/openclaw.json` directly. Add:
 
 ```json5
-"memory-agentcore": {
-  enabled: true,
-  config: {
-    memoryId: "<MEMORY_ID>",
-    // awsRegion defaults to us-east-1
+plugins: {
+  allow: ["memory-agentcore"],  // Required since OpenClaw 2026.3.12+
+  entries: {
+    "memory-agentcore": {
+      enabled: true,
+      config: {
+        memoryId: "<MEMORY_ID>",  // From AWS CreateMemory API response
+        // awsRegion: "us-east-1",
+      },
+    },
   },
 }
 ```
 
-**IMPORTANT**: Preserve all existing config. Only ADD the memory-agentcore entry.
+**IMPORTANT**: Preserve all existing config. Only ADD/merge the memory-agentcore entries. If `plugins.allow` already exists, append `"memory-agentcore"` to the existing array.
 
 ### Step 1.6: Write Checkpoint & Prepare for Restart
 

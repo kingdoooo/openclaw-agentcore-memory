@@ -29,16 +29,22 @@ In your OpenClaw agent config:
 ```jsonc
 {
   "plugins": {
-    "memory-agentcore": {
-      "memoryId": "mem-xxxxxxxxxx",  // Required: AgentCore Memory resource ID
-      "awsRegion": "us-east-1",
-      "strategies": ["SEMANTIC", "USER_PREFERENCE", "EPISODIC", "SUMMARY"],
-      "autoRecallTopK": 5,
-      "autoCaptureEnabled": true,
-      "noiseFilterEnabled": true,
-      "fileSyncEnabled": true,
-      "namespaceMode": "per-agent",
-      "showScores": false
+    "allow": ["memory-agentcore"],  // Required since OpenClaw 2026.3.12+
+    "entries": {
+      "memory-agentcore": {
+        "enabled": true,
+        "config": {
+          "memoryId": "MEMORY1234567890",  // Required: from CreateMemory API response
+          "awsRegion": "us-east-1",
+          "strategies": ["SEMANTIC", "USER_PREFERENCE", "EPISODIC", "SUMMARY"],
+          "autoRecallTopK": 5,
+          "autoCaptureEnabled": true,
+          "noiseFilterEnabled": true,
+          "fileSyncEnabled": true,
+          "namespaceMode": "per-agent",
+          "showScores": false
+        }
+      }
     }
   }
 }
@@ -66,6 +72,24 @@ Uses the AWS SDK credential chain (in order):
 2. Named profiles (`awsProfile` config or `AWS_PROFILE`)
 3. AWS SSO
 4. IAM roles (EC2, ECS, Lambda)
+
+**Required IAM permissions** (attach to your EC2 instance role or IAM user):
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "bedrock-agentcore:CreateEvent",
+    "bedrock-agentcore:RetrieveMemoryRecords",
+    "bedrock-agentcore:ListMemoryRecords",
+    "bedrock-agentcore:GetMemoryRecord",
+    "bedrock-agentcore:BatchCreateMemoryRecords",
+    "bedrock-agentcore:BatchUpdateMemoryRecords",
+    "bedrock-agentcore:DeleteMemoryRecord",
+    "bedrock-agentcore:BatchDeleteMemoryRecords"
+  ],
+  "Resource": "arn:aws:bedrock-agentcore:*:*:memory/*"
+}
+```
 
 ## Tools
 
@@ -99,7 +123,7 @@ Configure multiple agents to share memory via scopes:
 
 ```jsonc
 {
-  "memoryId": "mem-xxxxxxxxxx",
+  "memoryId": "MEMORY1234567890",
   "namespaceMode": "shared",
   "scopes": {
     "agentAccess": {

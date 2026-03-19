@@ -16,7 +16,7 @@
       },
       "memoryId": {
         "type": "string",
-        "description": "AgentCore Memory resource ID (e.g. mem-xxxxxxxxxx)"
+        "description": "AgentCore Memory resource ID (e.g. MEMORY1234567890)"
       },
       "awsRegion": {
         "type": "string",
