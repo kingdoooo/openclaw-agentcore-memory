@@ -50,7 +50,8 @@ const META_PATTERNS = [
   /^你(?:是谁|能做什么|会什么)/,
 ];
 
-export function classifyNoise(text: string): NoiseFilterResult {
+export function classifyNoise(text: unknown): NoiseFilterResult {
+  if (typeof text !== "string") return { isNoise: false };
   const trimmed = text.trim();
   if (!trimmed) return { isNoise: true, category: "greeting" };
 
@@ -77,6 +78,6 @@ export function classifyNoise(text: string): NoiseFilterResult {
   return { isNoise: false };
 }
 
-export function isNoise(text: string): boolean {
+export function isNoise(text: unknown): boolean {
   return classifyNoise(text).isNoise;
 }
