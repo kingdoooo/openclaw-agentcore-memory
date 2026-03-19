@@ -18,9 +18,20 @@ Registers as `kind: "general"`, coexisting with OpenClaw's built-in memory-core.
 
 ## Installation
 
+### Option A: Let your OpenClaw agent do it (recommended)
+
+Copy the ready-made prompts from **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** and send them to your agent. It will handle everything: AWS resource creation, plugin installation, configuration, and verification.
+
+### Option B: Manual installation
+
 ```bash
-openclaw plugins install .
+# Clone to OpenClaw plugins directory
+git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git ~/.openclaw/plugins/memory-agentcore
+cd ~/.openclaw/plugins/memory-agentcore
+npm install && npm run build
 ```
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for detailed manual setup, IAM permissions, and multi-agent enterprise configuration.
 
 ## Configuration
 
