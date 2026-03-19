@@ -61,13 +61,15 @@ aws bedrock-agentcore-control create-memory \
     '{"semanticMemoryStrategy":{"name":"semantic","namespaces":["/semantic"]}}' \
     '{"userPreferenceMemoryStrategy":{"name":"preferences","namespaces":["/preferences"]}}' \
     '{"summaryMemoryStrategy":{"name":"summary","namespaces":["/summary/{sessionId}"]}}' \
-    '{"episodicMemoryStrategy":{"name":"episodic","namespaces":["/episodic/{sessionId}"]}}' \
+    '{"episodicMemoryStrategy":{"name":"episodic","namespaces":["/episodic/{sessionId}"],"reflectionConfiguration":{"namespaces":["/episodic"]}}}' \
   --region <REGION>
 ```
 
 > **⚠️ CRITICAL**: Summary and episodic strategy namespaces **MUST** contain `{sessionId}` placeholder. The API rejects the request without it.
 >
 > **Note**: The parameter is `--memory-strategies` (not `--strategies`). Each strategy is a separate argument, not a JSON array.
+>
+> **Note**: Episodic strategy **requires** `reflectionConfiguration` with a namespace that is a prefix of the episodic namespace (e.g. `/episodic` is a prefix of `/episodic/{sessionId}`). Without it, the API returns a validation error.
 >
 > All 4 strategies are recommended. If episodic is omitted at creation time, the plugin will still report it in logs but episodic extraction/reflection won't function on the AWS side.
 
