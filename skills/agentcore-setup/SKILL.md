@@ -1,24 +1,100 @@
 ---
 name: agentcore-setup
-description: Install, configure, and verify the memory-agentcore plugin for Amazon Bedrock AgentCore Memory. Handles the full lifecycle including gateway restart and post-restart verification.
+description: Install, configure, and verify the memory-agentcore plugin for Amazon Bedrock AgentCore Memory. Handles the full lifecycle including AWS resource creation, plugin installation, gateway restart, and post-restart verification.
 ---
 
 # AgentCore Memory Plugin Setup & Verification
 
 You are performing automated setup and verification of the `memory-agentcore` plugin.
 
+## Prerequisites
+
+Before starting, gather these from the user:
+- **memoryId**: The AgentCore Memory resource ID (format: `name-XXXXXXXXXX`). If they don't have one, run Phase 0 first.
+- **AWS region**: Which region the Memory resource is in (default: `us-west-2`)
+- **Repo access**: The repo is public at `https://github.com/kingdoooo/openclaw-agentcore-memory`.
+
 ## Checkpoint System
 
-This skill uses a checkpoint file at `~/.openclaw/.agentcore-setup-checkpoint` to track progress across gateway restarts.
+This skill uses a checkpoint file to track progress across gateway restarts.
 
 **FIRST**: Check if a checkpoint file exists:
 
 ```bash
-cat ~/.openclaw/.agentcore-setup-checkpoint 2>/dev/null
+cat "$HOME/.openclaw/.agentcore-setup-checkpoint" 2>/dev/null
 ```
 
 - If the file contains `verify` → Skip to **Phase 2: Verification**
-- If the file does not exist or is empty → Start from **Phase 1: Installation**
+- If the file does not exist or is empty → Start from **Phase 0** or **Phase 1**
+
+---
+
+## Phase 0: AWS Resource Creation
+
+Skip this phase if the user already has a `memoryId`.
+
+### Step 0.1: Pre-flight
+
+```bash
+aws sts get-caller-identity 2>&1
+aws --version
+```
+
+If AWS credentials fail, STOP and tell the user to configure IAM role, env vars, or AWS profile first.
+
+### Step 0.2: Create Memory Resource
+
+> **IMPORTANT**: The control plane API is `bedrock-agentcore-control`, NOT `bedrock-agentcore`.
+> - `bedrock-agentcore-control` = control plane (create/delete/list resources)
+> - `bedrock-agentcore` = data plane (read/write memory records)
+
+Ask the user which `--region` to use, then run:
+
+```bash
+aws bedrock-agentcore-control create-memory \
+  --name "openclaw_memory" \
+  --description "OpenClaw agent memory" \
+  --event-expiry-duration 90 \
+  --strategies '[
+    {"strategyType":"SEMANTIC","namespaceType":"CUSTOM","namespace":"/semantic","configuration":{"semanticConfiguration":{}}},
+    {"strategyType":"USER_PREFERENCE","namespaceType":"CUSTOM","namespace":"/preferences","configuration":{"userPreferenceConfiguration":{}}},
+    {"strategyType":"SUMMARIZATION","namespaceType":"CUSTOM","namespace":"/summary/{sessionId}","configuration":{"summarizationConfiguration":{}}}
+  ]' \
+  --region <REGION>
+```
+
+> **⚠️ CRITICAL**: SUMMARIZATION strategy namespace **MUST** contain `{sessionId}` placeholder. The API rejects the request without it.
+
+Note the `memoryId` from the response.
+
+### Step 0.3: Verify Memory is ACTIVE
+
+```bash
+aws bedrock-agentcore-control get-memory --memory-id "<MEMORY_ID>" --region <REGION>
+```
+
+Wait until `status` is `ACTIVE` before proceeding. This usually takes 30-60 seconds.
+
+### Step 0.4: IAM Permissions
+
+Ensure the EC2 instance role (or IAM user) has these data plane permissions:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "bedrock-agentcore:CreateEvent",
+    "bedrock-agentcore:RetrieveMemoryRecords",
+    "bedrock-agentcore:ListMemoryRecords",
+    "bedrock-agentcore:GetMemoryRecord",
+    "bedrock-agentcore:BatchCreateMemoryRecords",
+    "bedrock-agentcore:BatchUpdateMemoryRecords",
+    "bedrock-agentcore:DeleteMemoryRecord",
+    "bedrock-agentcore:BatchDeleteMemoryRecords"
+  ],
+  "Resource": "arn:aws:bedrock-agentcore:*:*:memory/*"
+}
+```
 
 ---
 
@@ -26,99 +102,119 @@ cat ~/.openclaw/.agentcore-setup-checkpoint 2>/dev/null
 
 ### Step 1.1: Pre-flight Checks
 
-Run these checks and report any failures before proceeding:
-
 ```bash
-# Check OpenClaw is running
 openclaw status
-
-# Check AWS credentials are configured
 aws sts get-caller-identity 2>&1
-
-# Check git is available
 git --version
+node --version  # Requires Node.js 18+
 ```
 
-If AWS credentials fail, STOP and tell the user:
-> "AWS credentials are not configured on this machine. Please set up IAM role, env vars, or AWS profile first."
-
-### Step 1.2: Clone Repository
+### Step 1.2: Clone & Build
 
 ```bash
-if [ -d ~/projects/openclaw-agentcore-memory ]; then
+PLUGIN_DIR="$HOME/.openclaw/plugins/memory-agentcore"
+
+if [ -d "$PLUGIN_DIR" ]; then
   echo "Repository already exists, pulling latest..."
-  cd ~/projects/openclaw-agentcore-memory && git pull
+  cd "$PLUGIN_DIR" && git pull
 else
-  mkdir -p ~/projects
-  git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git ~/projects/openclaw-agentcore-memory
+  mkdir -p "$HOME/.openclaw/plugins"
+  git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git "$PLUGIN_DIR"
 fi
+
+cd "$PLUGIN_DIR"
+npm install
+npm run build
 ```
 
-### Step 1.3: Install Dependencies
+> **⚠️ IMPORTANT**: `npm run build` (TypeScript compilation) is **required**. The plugin loads compiled JS from `dist/`, not TypeScript source.
+
+Verify build succeeded:
+```bash
+ls "$PLUGIN_DIR/dist/index.js" && echo "Build OK" || echo "Build FAILED"
+```
+
+### Step 1.3: Configure Plugin
+
+Use **load path mode** (recommended — allows updating via `git pull && npm run build` without reinstall).
+
+> **⚠️ CRITICAL: All paths in config MUST be absolute. Do NOT use `~`.**
+> Gateway runs as a Node.js process. Unlike bash, it does **NOT** expand `~`.
+> Using `~` causes `plugins.load failed` error on every restart.
+
+Determine the absolute path:
+```bash
+PLUGIN_DIR="$(cd "$HOME/.openclaw/plugins/memory-agentcore" && pwd)"
+echo "Absolute path: $PLUGIN_DIR"
+```
+
+Now edit `~/.openclaw/openclaw.json`. You must **merge** into the existing config, not overwrite it.
+
+Use this Python script to safely merge the plugin config:
 
 ```bash
-cd ~/projects/openclaw-agentcore-memory
-npm install 2>&1
-```
+python3 -c "
+import json, os
 
-If npm is not available, try `bun install`.
+config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+plugin_dir = os.path.expanduser('~/.openclaw/plugins/memory-agentcore')
+plugin_dir = os.path.realpath(plugin_dir)  # Absolute path
 
-### Step 1.4: Install Plugin
+with open(config_path, 'r') as f:
+    cfg = json.load(f)
 
-```bash
-openclaw plugins install -l ~/projects/openclaw-agentcore-memory
-```
+# Ensure plugins section exists
+cfg.setdefault('plugins', {})
+cfg['plugins'].setdefault('allow', [])
+cfg['plugins'].setdefault('entries', {})
 
-Using `-l` (link mode) so future `git pull` updates take effect without reinstall.
+# Add to allow list if not present
+if 'memory-agentcore' not in cfg['plugins']['allow']:
+    cfg['plugins']['allow'].append('memory-agentcore')
 
-### Step 1.5: Configure Plugin
+# Set load path
+cfg['plugins']['load'] = {'paths': [plugin_dir]}
 
-Ask the user for their `memoryId` if not already known. Then configure:
-
-```bash
-openclaw config set plugins.allow '["memory-agentcore"]'
-openclaw config set plugins.entries.memory-agentcore.enabled true
-openclaw config set plugins.entries.memory-agentcore.config.memoryId "<MEMORY_ID>"
-```
-
-If `openclaw config set` doesn't support nested plugin config, edit `~/.openclaw/openclaw.json` directly. Add:
-
-```json5
-plugins: {
-  allow: ["memory-agentcore"],  // Required since OpenClaw 2026.3.12+
-  entries: {
-    "memory-agentcore": {
-      enabled: true,
-      config: {
-        memoryId: "<MEMORY_ID>",  // From AWS CreateMemory API response
-        // awsRegion: "us-east-1",
-      },
-    },
-  },
+# Set plugin config — ask user for memoryId and region
+cfg['plugins']['entries']['memory-agentcore'] = {
+    'enabled': True,
+    'config': {
+        'memoryId': '<MEMORY_ID>',
+        'awsRegion': '<REGION>'
+    }
 }
+
+with open(config_path, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+print('Config updated successfully')
+print(f'  load.paths: [{plugin_dir}]')
+print(f'  memoryId: <MEMORY_ID>')
+print(f'  awsRegion: <REGION>')
+"
 ```
 
-**IMPORTANT**: Preserve all existing config. Only ADD/merge the memory-agentcore entries. If `plugins.allow` already exists, append `"memory-agentcore"` to the existing array.
+**Replace `<MEMORY_ID>` and `<REGION>` with actual values before running.**
 
-### Step 1.6: Write Checkpoint & Prepare for Restart
+> **Alternative: `openclaw plugins install .`** (production mode) copies the plugin to `~/.openclaw/extensions/`. But do NOT use both methods — you'll get a `duplicate plugin id` warning.
+
+### Step 1.4: Write Checkpoint & Restart
 
 ```bash
-echo "verify" > ~/.openclaw/.agentcore-setup-checkpoint
+echo "verify" > "$HOME/.openclaw/.agentcore-setup-checkpoint"
 ```
-
-### Step 1.7: Restart Gateway
 
 Tell the user:
 
-> "Plugin installed and configured. I need to restart the gateway for the plugin to load. After restart, send me any message and I will automatically run verification."
+> "Plugin installed and configured. I need to restart the gateway. After restart, send me any message and I'll run verification."
 
-Then execute:
+Then restart:
 
 ```bash
 openclaw gateway restart
 ```
 
-The connection will drop. This is expected.
+> **Note**: Gateway defers restart until active operations complete (up to 90s). The `⚠️ 🔌 Gateway failed` message during restart is **normal** — it's the WebSocket reconnecting, not an actual failure.
 
 ---
 
@@ -126,179 +222,203 @@ The connection will drop. This is expected.
 
 **Entry condition**: Checkpoint file contains `verify`.
 
-Run each test sequentially. Collect results and report a summary at the end.
+### Pre-check: Verify plugin loaded
 
-### Test 1: Plugin Load
+Before using agentcore tools, confirm the plugin actually loaded. If it didn't, the tools won't exist.
 
 ```bash
-openclaw plugins list 2>/dev/null | grep -q "memory-agentcore" && echo "PASS" || echo "FAIL"
+openclaw plugins list 2>&1 | grep "memory-agentcore"
 ```
 
-### Test 2: Connection Status
+If not found, check logs and troubleshoot (see Troubleshooting section) before continuing.
+
+```bash
+grep -i "load failed\|duplicate plugin\|agentcore.*error" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null \
+  | grep -v "deliver called\|tool call\|tool done" | tail -5
+```
+
+### Test 1: Connection Status
 
 ```bash
 openclaw agentcore-status 2>&1
 ```
 
-Check that output contains `Connection: OK`. If it says `FAILED`, report the error.
+Check output contains `Connection: OK`. If `FAILED`, check AWS credentials and memoryId.
 
-### Test 3: CLI Search (Baseline)
-
-```bash
-openclaw agentcore-search "setup-verification-baseline-test" 2>&1
-```
-
-Expected: `No records found` (baseline).
-
-### Test 4: Tool - Store Memory
+### Test 2: Tool - Store Memory
 
 Use the `agentcore_store` tool:
+- content: `"AgentCore setup verification test - installed on <today's date>"`
+- category: `"fact"`
+- importance: `0.8`
+- scope: `"global"`
+- tags: `["setup-test", "verification"]`
 
-```
-content: "AgentCore setup verification test record - installed on <today's date>"
-category: "fact"
-importance: 0.8
-scope: "global"
-tags: ["setup-test", "verification"]
-```
+**PASS** if `"stored": true`. Save the `recordId` for Tests 5 and 7.
 
-Check that the result contains `"stored": true`.
-
-### Test 5: Tool - Recall Memory
+### Test 3: Tool - Recall Memory
 
 Use the `agentcore_recall` tool:
+- query: `"AgentCore setup verification test"`
+- limit: `3`
 
-```
-query: "AgentCore setup verification test record"
-limit: 3
-```
+**PASS** if results contain the test record.
 
-Check that results contain the record from Test 4.
+> **Known behavior**: For newly created Memory resources, semantic search may return 0 results for the first few minutes (index warm-up). If empty, verify via `agentcore_search` (list mode). Mark **PARTIAL** if list finds data but recall is empty.
 
-### Test 6: Tool - Search (List)
+### Test 4: Tool - Search (List)
 
 Use the `agentcore_search` tool:
+- scope: `"global"`
+- max_results: `5`
 
-```
-scope: "global"
-max_results: 5
-```
+**PASS** if returns without error and shows the test record.
 
-Check that it returns without error.
+### Test 5: Tool - Correct
 
-### Test 7: Tool - Stats
+Use the `agentcore_correct` tool:
+- record_id: `<ID from Test 2>`
+- new_content: `"AgentCore setup verification - CORRECTED - plugin working correctly"`
+
+**PASS** if `"corrected": true`.
+
+### Test 6: Tool - Stats
 
 Use the `agentcore_stats` tool:
+- scope: `"global"`
 
-```
-scope: "global"
-```
+**PASS** if `"connected": true`.
 
-Check that `"connected": true`.
-
-### Test 8: Tool - Correct
-
-Use the `agentcore_correct` tool to update the test record from Test 4:
-
-```
-record_id: <ID from Test 4>
-new_content: "AgentCore setup verification - CORRECTED - plugin working correctly"
-```
-
-Check that `"corrected": true`.
-
-### Test 9: Tool - Share
+### Test 7: Tool - Share
 
 Use the `agentcore_share` tool:
+- content: `"Shared verification: memory-agentcore is operational"`
+- target_scopes: `["agent:test-agent"]`
+- category: `"fact"`
 
-```
-content: "Shared verification fact: memory-agentcore is operational"
-target_scopes: ["agent:test-agent"]
-category: "fact"
-```
+**PASS** if `"shared": true`.
 
-Check that `"shared": true`.
+### Test 8: Tool - Forget (Cleanup)
 
-### Test 10: Tool - Forget (Cleanup)
+Clean up ALL test records:
 
-Use the `agentcore_forget` tool to clean up all test records:
+1. Use `agentcore_forget`:
+   - search_query: `"AgentCore setup verification"`
+   - confirm: `true`
+   - scope: `"global"`
 
-```
-search_query: "AgentCore setup verification"
-confirm: true
-scope: "global"
-```
+2. Use `agentcore_forget`:
+   - search_query: `"memory-agentcore is operational"`
+   - confirm: `true`
+   - scope: `"agent:test-agent"`
 
-Check that `"deleted": true`.
+**PASS** if `"deleted": true` (or count >= 1).
 
-### Test 11: File Sync
+### Test 9: File Sync
 
 ```bash
 openclaw agentcore-sync 2>&1
 ```
 
-Check output contains `Synced` (0 or more files is OK, as long as no error).
+**PASS** if output contains `Synced` (0 or more files OK, no error).
 
-### Test 12: CLI Remember
+### Test 10: CLI Remember + Cleanup
 
 ```bash
 openclaw agentcore-remember "CLI remember test from setup verification"
 ```
 
-Check output says `Stored`.
+**PASS** if output says `Stored`.
 
-Then clean up:
+Then clean up via `agentcore_forget`:
+- search_query: `"CLI remember test"`
+- confirm: `true`
 
-```bash
-openclaw agentcore-search "CLI remember test" --show-ids 2>&1
-# Delete by ID if found
-```
-
-### Test 13: Episodic Search
+### Test 11: Episodic Search
 
 Use the `agentcore_episodes` tool:
+- query: `"verification test"`
+- top_k: `3`
 
-```
-query: "verification test"
-top_k: 3
+May return 0 results (episodic needs conversation events). **PASS** if no error.
+
+### Test 12: Runtime Error Check
+
+```bash
+# Find plugin load timestamp
+LOAD_TIME=$(grep "agentcore.*Plugin loaded" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null | tail -1 | grep -o '"date":"[^"]*"' | cut -d'"' -f4)
+echo "Plugin loaded at: $LOAD_TIME"
+
+# Check for errors after plugin load
+grep -i "agentcore.*error\|auto-capture error" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null \
+  | grep -v "deliver called\|tool call\|tool done" | tail -5
 ```
 
-May return 0 results (episodic needs time to extract). No error = pass.
+**PASS** if no errors after plugin load time.
 
 ### Results Summary
 
-After all tests, remove the checkpoint:
+Remove the checkpoint:
 
 ```bash
-rm -f ~/.openclaw/.agentcore-setup-checkpoint
+rm -f "$HOME/.openclaw/.agentcore-setup-checkpoint"
 ```
 
-Then report:
+Report:
 
 ```
 === memory-agentcore Verification Results ===
 
- 1. Plugin Load:     [PASS/FAIL]
- 2. Connection:      [PASS/FAIL]
- 3. CLI Search:      [PASS/FAIL]
- 4. Store Memory:    [PASS/FAIL]
- 5. Recall Memory:   [PASS/FAIL]
- 6. Search/List:     [PASS/FAIL]
- 7. Stats:           [PASS/FAIL]
- 8. Correct Memory:  [PASS/FAIL]
- 9. Share Memory:    [PASS/FAIL]
-10. Forget/Delete:   [PASS/FAIL]
-11. File Sync:       [PASS/FAIL]
-12. CLI Remember:    [PASS/FAIL]
-13. Episodic Search: [PASS/FAIL]
+ Pre. Plugin Load:     [PASS/FAIL]
+  1.  Connection:      [PASS/FAIL]
+  2.  Store Memory:    [PASS/FAIL]
+  3.  Recall Memory:   [PASS/FAIL/PARTIAL]
+  4.  Search/List:     [PASS/FAIL]
+  5.  Correct Memory:  [PASS/FAIL]
+  6.  Stats:           [PASS/FAIL]
+  7.  Share Memory:    [PASS/FAIL]
+  8.  Forget/Delete:   [PASS/FAIL]
+  9.  File Sync:       [PASS/FAIL]
+ 10.  CLI Remember:    [PASS/FAIL]
+ 11.  Episodic Search: [PASS/FAIL]
+ 12.  Runtime Errors:  [PASS/FAIL]
 
-Total: X/13 passed
+Total: X/12 passed (Pre-check excluded from count)
 ```
 
-### Troubleshooting (If Tests Fail)
+---
 
-- **Plugin not loaded**: `openclaw plugins list`, verify `plugins.entries` config, restart gateway
-- **Connection FAILED**: `aws sts get-caller-identity`, verify memoryId is correct
-- **Store/Recall fail**: Check IAM permissions include `bedrock-agentcore:*`
-- **File sync error**: Check workspace has MEMORY.md or USER.md files
-- **Share fail**: Target scope namespace may not exist yet; this is OK for first run
+## Known Issues & Troubleshooting
+
+### Plugin Load Failures
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `plugins.load failed` | `~` in `plugins.load.paths` | Use absolute path (`$HOME` expanded) |
+| `duplicate plugin id detected` | Plugin in both `load.paths` AND `extensions/` | Remove `~/.openclaw/extensions/memory-agentcore/` |
+| `missing openclaw.extensions` | Missing field in package.json | Should be fixed in latest version; run `git pull && npm run build` |
+| `must have required property 'memoryId'` | Wrong config nesting | Must be `plugins.entries.memory-agentcore.config.memoryId` |
+
+### Gateway Restart
+
+- `⚠️ 🔌 Gateway failed` during restart = **normal** (WebSocket reconnecting)
+- Gateway defers restart up to 90s for active operations
+- If `config.patch` fails with `invalid config`, edit `openclaw.json` directly (Python/jq)
+
+### AWS API
+
+| Issue | Detail |
+|-------|--------|
+| Control vs data plane | Resources: `bedrock-agentcore-control`. Records: `bedrock-agentcore`. |
+| SUMMARIZATION namespace | **Must** contain `{sessionId}`. API rejects without it. |
+| Memory not ready | Must be `ACTIVE` before use. Poll with `get-memory`. |
+| Recall returns empty | New resources need index warm-up (5-10 min). Use `agentcore_search` to verify data exists. |
+
+### Update Workflow
+
+```bash
+cd "$HOME/.openclaw/plugins/memory-agentcore"
+git pull
+npm run build
+openclaw gateway restart
+```
