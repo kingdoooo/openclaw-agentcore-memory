@@ -1,5 +1,7 @@
 # memory-agentcore
 
+[English](README.md)
+
 基于 **Amazon Bedrock AgentCore Memory** 的 OpenClaw 企业级共享记忆插件。
 
 ## 为什么需要这个插件？

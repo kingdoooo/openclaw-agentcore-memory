@@ -1,5 +1,7 @@
 # memory-agentcore
 
+[中文文档](README_CN.md)
+
 OpenClaw plugin for enterprise shared memory via **Amazon Bedrock AgentCore Memory**.
 
 ## Why Not Built-in Memory?
