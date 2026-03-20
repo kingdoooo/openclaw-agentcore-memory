@@ -41,7 +41,7 @@ This plugin **coexists** with memory-core — local memory still works offline, 
 
 ## Quick Start: Agent-Driven Deploy (Recommended)
 
-Copy the ready-made prompts from **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** and send to your OpenClaw agent. It handles everything automatically:
+Copy the ready-made prompt from **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** ([中文版](docs/AGENT-DEPLOY-PROMPT.zh-CN.md)) and send to your OpenClaw agent. It handles everything automatically:
 
 1. Create AWS AgentCore Memory resource (4 strategies)
 2. Clone, build, and configure the plugin
