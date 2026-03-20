@@ -74,6 +74,38 @@
         "default": false,
         "description": "Include similarity scores in recalled memories"
       },
+      "scoreGapEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable score gap detection to filter low-relevance results"
+      },
+      "scoreGapMultiplier": {
+        "type": "number",
+        "default": 2.0,
+        "description": "Gap sensitivity multiplier. Higher = more lenient, lower = stricter"
+      },
+      "minScoreFloor": {
+        "type": "number",
+        "default": 0.0,
+        "description": "Absolute minimum score threshold (0.0 = disabled)"
+      },
+      "noisePatterns": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "User-defined regex patterns to treat as noise (e.g. [\"^はい$\", \"^Build succeeded\"])"
+      },
+      "bypassPatterns": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "User-defined regex patterns to bypass noise filter (e.g. [\"^Error:\"])"
+      },
+      "statsCacheTtlMs": {
+        "type": "number",
+        "default": 300000,
+        "description": "Stats cache TTL in milliseconds (default: 5 minutes)"
+      },
       "fileSyncEnabled": {
         "type": "boolean",
         "default": true,
