@@ -20,7 +20,8 @@ PRE-CHECK: Verify prerequisites before starting. Run ALL of these and report any
   git --version                      # Must be installed
 
 If aws commands fail with AccessDenied or UnrecognizedClientException, STOP and tell the user to configure AWS credentials and ensure bedrock-agentcore permissions are enabled in the region.
-If node version is below 18, STOP and tell the user to upgrade Node.js.
+If Node.js is not installed or the installed version is below 18, stop and notify the user that they need to upgrade Node.js. Alternatively, ask if they would like you to handle the installation on their behalf.
+If Git is not installed, stop and notify the user that they need to install Git. Alternatively, ask if they would like you to handle the installation on their behalf.
 
 PHASE 0: CREATE AWS MEMORY RESOURCE
 
@@ -187,6 +188,18 @@ Total: X/13 passed
 
 If any test fails, report the specific error.
 ````
+
+---
+
+## Message 3: New Features Test (v0.2+)
+
+After Message 2 passes, the plugin is installed and the `agentcore-setup` skill is available. Use it directly:
+
+````
+Run agentcore-setup Phase 3 to test the new features (score gap detection, stats cache, purge, retry, configurable noise filter).
+````
+
+> No need to paste detailed test steps — the agent loads them from the skill file automatically.
 
 ---
 
