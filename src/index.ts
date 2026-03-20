@@ -309,9 +309,9 @@ const plugin = {
               `  Noise filter: ${config.noiseFilterEnabled}`,
             );
             console.log(`  File sync: ${config.fileSyncEnabled}`);
-            console.log(`  Ready: ${ready}`);
 
             if (!client) {
+              console.log("  Ready: false");
               console.log("  Connection: NOT INITIALIZED");
               return;
             }
@@ -321,10 +321,14 @@ const plugin = {
                 namespace: "/global",
                 maxResults: 1,
               });
+              ready = true;
               console.log("  Connection: OK");
             } catch (err) {
+              ready = false;
               console.log(`  Connection: FAILED (${err})`);
             }
+
+            console.log(`  Ready: ${ready}`);
 
             if (fileSync) {
               const state = fileSync.getState();
