@@ -41,7 +41,7 @@ OpenClaw 内置的 memory-core 将记忆存储为本地 Markdown 文件，每个
 
 ## 快速开始：Agent 自动部署（推荐）
 
-将 **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** 中的提示词复制发给你的 OpenClaw agent，它会自动完成：
+将 **[docs/AGENT-DEPLOY-PROMPT.zh-CN.md](docs/AGENT-DEPLOY-PROMPT.zh-CN.md)** 中的提示词复制发给你的 OpenClaw agent（[English](docs/AGENT-DEPLOY-PROMPT.md)），它会自动完成：
 
 1. 创建 AWS AgentCore Memory 资源（4 种策略）
 2. 克隆、构建、配置插件
