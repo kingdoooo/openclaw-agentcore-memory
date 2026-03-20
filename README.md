@@ -2,58 +2,114 @@
 
 OpenClaw plugin for enterprise shared memory via **Amazon Bedrock AgentCore Memory**.
 
-Registers as `kind: "general"`, coexisting with OpenClaw's built-in memory-core. The built-in memory-core manages local MEMORY.md files (offline-capable), while memory-agentcore adds cloud-based shared memory, governed extraction, and episodic learning via AgentCore.
+## Why Not Built-in Memory?
+
+OpenClaw's built-in memory-core stores memories as local Markdown files per agent. This works well for single-agent personal use, but breaks down in enterprise multi-agent scenarios:
+
+**Example: E-commerce with 3 agents** — A customer tells the sales agent "I prefer express shipping." Later, the fulfillment agent processes their order but doesn't know this preference. The support agent handles a complaint but has no context from previous interactions.
+
+| Capability | Built-in memory-core | memory-agentcore |
+|-----------|---------------------|-----------------|
+| Storage | Local `.md` files | Cloud (AgentCore managed) |
+| Cross-agent sharing | Not supported | Namespace-based sharing with IAM |
+| Memory extraction | Manual (agent writes to files) | Automatic (4 built-in strategies) |
+| Episodic learning | Not supported | Cross-session reflection and pattern detection |
+| Access control | Filesystem permissions | IAM policies + CloudTrail audit |
+| Encryption | None | KMS at rest + TLS in transit |
+| Manual file deletion | Delete files manually | API-driven with audit trail |
+
+This plugin **coexists** with memory-core — local memory still works offline, cloud memory adds sharing and governance on top.
 
 ## Features
 
 - **Shared memory** across agents via namespace-based isolation/sharing
 - **Enterprise governance**: IAM access control, CloudTrail audit, KMS encryption
 - **Managed extraction**: AgentCore's built-in strategies (SEMANTIC, USER_PREFERENCE, EPISODIC, SUMMARY)
-- **Episodic memory**: agents learn from past experiences
+- **Episodic memory**: agents learn from past experiences with cross-episode reflections
 - **Auto-recall**: inject relevant memories before each agent turn
 - **Auto-capture**: automatically capture conversations after each agent run
-- **File sync**: sync MEMORY.md/USER.md/memory/*.md to AgentCore
-- **GDPR-compliant deletion** via `agentcore_forget`
+- **File sync**: sync MEMORY.md/USER.md/SOUL.md/TOOLS.md/memory/*.md to AgentCore
+- **On-demand memory deletion** via `agentcore_forget`
 - **Bilingual noise filter** (EN/ZH) and adaptive retrieval gating
 
-## Installation
+## Prerequisites
 
-### Option A: Let your OpenClaw agent do it (recommended)
+- OpenClaw running (2026.3.12+)
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) installed
+- AWS credentials configured on EC2: attach `BedrockAgentCoreFullAccess` managed policy to the instance role (or see [minimum permissions](#required-iam-permissions) below)
+- Node.js 18+, git
 
-Copy the ready-made prompts from **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** and send them to your agent. It will handle everything: AWS resource creation, plugin installation, configuration, and verification.
+## Quick Start: Agent-Driven Deploy (Recommended)
 
-### Option B: Manual installation
+Copy the ready-made prompts from **[docs/AGENT-DEPLOY-PROMPT.md](docs/AGENT-DEPLOY-PROMPT.md)** and send to your OpenClaw agent. It handles everything automatically:
+
+1. Create AWS AgentCore Memory resource (4 strategies)
+2. Clone, build, and configure the plugin
+3. Update AGENTS.md with usage guide
+4. Restart gateway and run 13-step verification
+
+**You only need to provide**: AWS region (e.g., `us-west-2`)
+
+## Manual Setup
+
+### Step 1: Create AgentCore Memory Resource
+
+Create a **dedicated** Memory resource for this OpenClaw deployment. Do not reuse Memory resources from other projects — different projects may have incompatible strategies and namespaces, and their data would mix together.
+
+> **IMPORTANT**: The control plane CLI is `bedrock-agentcore-control`, NOT `bedrock-agentcore`.
 
 ```bash
-# Clone to OpenClaw plugins directory
-git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git ~/.openclaw/plugins/memory-agentcore
-cd ~/.openclaw/plugins/memory-agentcore
-npm install && npm run build
+aws bedrock-agentcore-control create-memory \
+  --name "openclaw_memory" \
+  --description "Shared memory for OpenClaw agents" \
+  --event-expiry-duration 90 \
+  --memory-strategies \
+    '{"semanticMemoryStrategy":{"name":"semantic","namespaces":["/semantic"]}}' \
+    '{"userPreferenceMemoryStrategy":{"name":"preferences","namespaces":["/preferences"]}}' \
+    '{"summaryMemoryStrategy":{"name":"summary","namespaces":["/summary/{sessionId}"]}}' \
+    '{"episodicMemoryStrategy":{"name":"episodic","namespaces":["/episodic/{sessionId}"],"reflectionConfiguration":{"namespaces":["/episodic"]}}}' \
+  --region us-west-2
 ```
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for detailed manual setup, IAM permissions, and multi-agent enterprise configuration.
+> Summary and episodic namespaces **must** contain `{sessionId}`. Episodic **requires** `reflectionConfiguration`.
 
-## Configuration
+Wait for ACTIVE status:
+```bash
+aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region us-west-2
+```
 
-In your OpenClaw agent config:
+### Step 2: Clone & Build
 
-```jsonc
+```bash
+PLUGIN_DIR="$HOME/.openclaw/plugins/memory-agentcore"
+mkdir -p "$HOME/.openclaw/plugins"
+git clone https://github.com/kingdoooo/openclaw-agentcore-memory.git "$PLUGIN_DIR"
+cd "$PLUGIN_DIR"
+npm install
+npm run build
+```
+
+> `npm run build` is **required**. The plugin loads compiled JS from `dist/`.
+
+### Step 3: Configure
+
+Edit `~/.openclaw/openclaw.json`:
+
+> **All paths must be ABSOLUTE. Do NOT use `~`** — Node.js does not expand `~`, causing `plugins.load failed`.
+
+```json5
 {
-  "plugins": {
-    "allow": ["memory-agentcore"],  // Required since OpenClaw 2026.3.12+
-    "entries": {
+  plugins: {
+    allow: ["memory-agentcore"],              // Required since OpenClaw 2026.3.12+
+    load: {
+      paths: ["/home/ubuntu/.openclaw/plugins/memory-agentcore"]  // ABSOLUTE path
+    },
+    entries: {
       "memory-agentcore": {
-        "enabled": true,
-        "config": {
-          "memoryId": "MEMORY1234567890",  // Required: from CreateMemory API response
-          "awsRegion": "us-east-1",
-          "strategies": ["SEMANTIC", "USER_PREFERENCE", "EPISODIC", "SUMMARY"],
-          "autoRecallTopK": 5,
-          "autoCaptureEnabled": true,
-          "noiseFilterEnabled": true,
-          "fileSyncEnabled": true,
-          "namespaceMode": "per-agent",
-          "showScores": false
+        enabled: true,
+        config: {
+          memoryId: "<YOUR_MEMORY_ID>",       // From Step 1
+          awsRegion: "us-west-2"
         }
       }
     }
@@ -61,13 +117,50 @@ In your OpenClaw agent config:
 }
 ```
 
+> Do NOT also run `openclaw plugins install .` — using both `load.paths` and `install` causes `duplicate plugin id` error.
+
+### Step 4: Restart & Verify
+
+```bash
+openclaw gateway restart
+
+# After restart:
+openclaw plugins list | grep memory-agentcore
+openclaw agentcore-status
+```
+
+## Configuration Reference
+
+### All Options
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `memoryId` | **(required)** | AgentCore Memory resource ID |
+| `awsRegion` | `us-east-1` | AWS region |
+| `awsProfile` | - | Named AWS credential profile |
+| `enabled` | `true` | Enable/disable the plugin |
+| `strategies` | `["SEMANTIC","USER_PREFERENCE","EPISODIC","SUMMARY"]` | Active extraction strategies |
+| `autoRecallTopK` | `5` | Memories to inject before each turn (0=disabled) |
+| `autoCaptureEnabled` | `true` | Auto-capture after each agent run |
+| `autoCaptureMinLength` | `30` | Min combined message length for capture |
+| `noiseFilterEnabled` | `true` | Filter greetings/heartbeats before capture |
+| `adaptiveRetrievalEnabled` | `true` | Skip trivial query retrieval |
+| `namespaceMode` | `per-agent` | `per-agent` / `per-user` / `shared` / `custom` |
+| `eventExpiryDays` | `90` | Short-term event retention |
+| `showScores` | `false` | Include similarity scores in recalled memories |
+| `fileSyncEnabled` | `true` | Auto-sync workspace files to AgentCore |
+| `fileSyncPaths` | `["MEMORY.md","USER.md","SOUL.md","TOOLS.md","memory/*.md"]` | Files to sync |
+| `maxRetries` | `3` | AWS SDK retry attempts |
+| `timeoutMs` | `10000` | Per-request timeout |
+
 ### Environment Variables
 
-All config fields support env var override:
+All fields support env var override:
 
 | Variable | Config Field |
 |----------|-------------|
 | `AGENTCORE_MEMORY_ID` | `memoryId` |
+| `AGENTCORE_ENABLED` | `enabled` |
 | `AWS_REGION` / `AGENTCORE_REGION` | `awsRegion` |
 | `AWS_PROFILE` / `AGENTCORE_PROFILE` | `awsProfile` |
 | `AGENTCORE_AUTO_RECALL_TOP_K` | `autoRecallTopK` |
@@ -76,7 +169,7 @@ All config fields support env var override:
 | `AGENTCORE_FILE_SYNC_ENABLED` | `fileSyncEnabled` |
 | `AGENTCORE_SHOW_SCORES` | `showScores` |
 
-### AWS Credentials
+## AWS Credentials & Permissions
 
 Uses the AWS SDK credential chain (in order):
 1. Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
@@ -84,7 +177,9 @@ Uses the AWS SDK credential chain (in order):
 3. AWS SSO
 4. IAM roles (EC2, ECS, Lambda)
 
-**Required IAM permissions** (attach to your EC2 instance role or IAM user):
+### Required IAM Permissions
+
+**Data plane** (plugin runtime — attach to EC2 instance role):
 ```json
 {
   "Effect": "Allow",
@@ -102,6 +197,20 @@ Uses the AWS SDK credential chain (in order):
 }
 ```
 
+**Control plane** (only if agent creates Memory resources during setup):
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "bedrock-agentcore-control:CreateMemory",
+    "bedrock-agentcore-control:GetMemory",
+    "bedrock-agentcore-control:ListMemories",
+    "bedrock-agentcore-control:UpdateMemory"
+  ],
+  "Resource": "*"
+}
+```
+
 ## Tools
 
 | Tool | Description |
@@ -109,7 +218,7 @@ Uses the AWS SDK credential chain (in order):
 | `agentcore_recall` | Semantic search through stored memories |
 | `agentcore_store` | Save facts/preferences/decisions to long-term memory |
 | `agentcore_forget` | Delete memories (GDPR-compliant, preview+confirm) |
-| `agentcore_correct` | Update/correct existing memory (retry+fallback to create) |
+| `agentcore_correct` | Update/correct existing memory in place |
 | `agentcore_search` | List/filter records by namespace and strategy |
 | `agentcore_stats` | Memory statistics and connection status |
 | `agentcore_share` | Share memory across multiple scopes/namespaces |
@@ -128,28 +237,44 @@ openclaw agentcore-sync                # Manual file sync
 openclaw agentcore-remember <fact>     # Store a fact directly
 ```
 
-## Enterprise Shared Memory
+## Multi-Agent Enterprise Setup
 
-Configure multiple agents to share memory via scopes:
+Multiple agents can share memory through a single Memory resource using namespace-based scoping:
 
-```jsonc
+```json5
 {
-  "memoryId": "MEMORY1234567890",
-  "namespaceMode": "shared",
-  "scopes": {
-    "agentAccess": {
-      "tech-support": ["agent:sales-bot", "agent:refund-bot", "project:ecommerce"],
-      "sales-bot": ["project:ecommerce"],
-      "refund-bot": ["project:ecommerce"]
+  plugins: {
+    allow: ["memory-agentcore"],
+    load: {
+      paths: ["/home/ubuntu/.openclaw/plugins/memory-agentcore"]
     },
-    "writeAccess": {
-      "tech-support": ["project:ecommerce"],
-      "sales-bot": ["project:ecommerce"],
-      "refund-bot": ["project:ecommerce"]
+    entries: {
+      "memory-agentcore": {
+        enabled: true,
+        config: {
+          memoryId: "<YOUR_MEMORY_ID>",
+          awsRegion: "us-west-2",
+          namespaceMode: "shared",
+          scopes: {
+            agentAccess: {
+              "tech-support": ["agent:sales-bot", "agent:refund-bot", "project:ecommerce"],
+              "sales-bot": ["project:ecommerce"],
+              "refund-bot": ["project:ecommerce"]
+            },
+            writeAccess: {
+              "tech-support": ["project:ecommerce"],
+              "sales-bot": ["project:ecommerce"],
+              "refund-bot": ["project:ecommerce"]
+            }
+          }
+        }
+      }
     }
   }
 }
 ```
+
+Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by default. Additional cross-agent access configured via `scopes`. IAM policies provide server-side enforcement.
 
 ### Scope Format
 
@@ -171,10 +296,19 @@ Local Memory (built-in memory-core)     Cloud Memory (memory-agentcore)
        +--- OpenClaw merges both into prompt ---+
 ```
 
+### Memory Types
+
+- **Short-term**: Raw conversation events within a session (auto-captured via `agent_end` hook)
+- **Long-term**: Extracted insights across sessions, organized by 4 strategies:
+  - **Semantic**: Facts and knowledge
+  - **User Preference**: User choices and styles
+  - **Summary**: Per-session rolling summaries
+  - **Episodic**: Structured experiences with cross-episode reflections
+
 ### Lifecycle Hooks
 
-- **`before_agent_start`**: Auto-recall - searches AgentCore, returns `{ prependContext }` with relevant memories
-- **`agent_end`**: Auto-capture (fire-and-forget) - captures conversation events + syncs changed files
+- **`before_agent_start`**: Auto-recall — searches AgentCore, returns `{ prependContext }` with relevant memories
+- **`agent_end`**: Auto-capture (fire-and-forget) — captures last message pair + syncs changed files
 
 ### Graceful Degradation
 
@@ -183,8 +317,30 @@ When offline or AgentCore unavailable:
 - Auto-capture silently fails (logged as warning)
 - Tools return error messages (agent can inform user)
 
+## Updating
+
+```bash
+cd ~/.openclaw/plugins/memory-agentcore
+git pull
+npm run build
+openclaw gateway restart
+```
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `plugins.load failed` | `~` in config paths | Use absolute path |
+| `duplicate plugin id` | Both `install` and `load.paths` | Remove `~/.openclaw/extensions/memory-agentcore/` |
+| `text.trim is not a function` | Old plugin version | `git pull && npm run build && openclaw gateway restart` |
+| `Connection: FAILED` | Bad credentials or memoryId | `aws sts get-caller-identity` + verify memoryId |
+| Recall returns empty | Index warm-up (30-60s) | Wait and retry, or use `agentcore_search` (list mode) |
+| `ValidationException: searchQuery` | Empty query | Fixed in latest; `git pull && npm run build` |
+| Tools not found | Plugin not loaded | Check `openclaw plugins list` and logs |
+| `missing openclaw.extensions` | Old package.json | `git pull && npm run build` |
+
 ## Dependencies
 
-- `@aws-sdk/client-bedrock-agentcore` - AWS SDK for AgentCore Memory
-- `@aws-sdk/credential-providers` - AWS credential chain
+- `@aws-sdk/client-bedrock-agentcore` — AWS SDK for AgentCore Memory
+- `@aws-sdk/credential-providers` — AWS credential chain
 - `openclaw` >= 0.2.0 (peer dependency)

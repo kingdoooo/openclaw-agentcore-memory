@@ -13,10 +13,10 @@ Help me deploy the memory-agentcore plugin. Follow these phases exactly.
 
 PHASE 0: CREATE AWS MEMORY RESOURCE
 
-Check for existing resources:
+List existing resources to see what's already there:
   aws bedrock-agentcore-control list-memories --region <REGION>
 
-If none exist, create one. IMPORTANT:
+Create a NEW dedicated Memory resource for this OpenClaw deployment. Do not reuse Memory resources from other projects — different projects may have incompatible strategies and namespaces, and their data would mix together. IMPORTANT:
 - CLI service is "bedrock-agentcore-control" (control plane), NOT "bedrock-agentcore"
 - --memory-strategies uses tagged union format, each strategy is a separate JSON argument
 - Summary and episodic namespaces MUST contain {sessionId}
