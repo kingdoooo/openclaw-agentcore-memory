@@ -11,6 +11,17 @@ Replace `<REGION>` with your AWS region (e.g., `us-west-2`).
 ````
 Help me deploy the memory-agentcore plugin. Follow these phases exactly.
 
+PRE-CHECK: Verify prerequisites before starting. Run ALL of these and report any failures:
+
+  aws sts get-caller-identity        # Must succeed — confirms AWS credentials
+  aws bedrock-agentcore-control list-memories --region <REGION> 2>&1 | head -5  # Must not show AccessDenied
+  node --version                     # Must be v18+
+  npm --version                      # Must be installed
+  git --version                      # Must be installed
+
+If aws commands fail with AccessDenied or UnrecognizedClientException, STOP and tell the user to configure AWS credentials and ensure bedrock-agentcore permissions are enabled in the region.
+If node version is below 18, STOP and tell the user to upgrade Node.js.
+
 PHASE 0: CREATE AWS MEMORY RESOURCE
 
 List existing resources to see what's already there:
@@ -20,7 +31,7 @@ Create a NEW dedicated Memory resource for this OpenClaw deployment. Do not reus
 - CLI service is "bedrock-agentcore-control" (control plane), NOT "bedrock-agentcore"
 - --memory-strategies uses tagged union format, each strategy is a separate JSON argument
 - Summary and episodic namespaces MUST contain {sessionId}
-- Episodic REQUIRES reflectionConfiguration
+- Episodic REQUIRES reflectionConfiguration (reflection namespace must be a prefix of the episodic namespace)
 
   aws bedrock-agentcore-control create-memory \
     --name "openclaw_memory" \
@@ -38,7 +49,7 @@ If parameter format errors occur, run: aws bedrock-agentcore-control create-memo
 Wait for ACTIVE status:
   aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <REGION>
 
-Note the memoryId from the response.
+Save the memoryId from the response — you will need it in Phase 2. The memoryId looks like "openclaw_memory-XXXXXXXXXX".
 
 PHASE 1: INSTALL PLUGIN
 
@@ -51,6 +62,8 @@ PHASE 1: INSTALL PLUGIN
   ls dist/index.js && echo "Build OK"
 
 IMPORTANT: npm run build is required. The plugin loads compiled JS from dist/.
+If npm install fails, check Node.js version (v18+ required) and network connectivity.
+If npm run build fails, check for TypeScript errors in the output.
 
 PHASE 2: CONFIGURE
 
@@ -58,10 +71,14 @@ Edit ~/.openclaw/openclaw.json. MERGE into existing config, do not overwrite.
 
 CRITICAL: All paths must be ABSOLUTE. Do NOT use ~ in config values. Node.js does not expand ~.
 
-Use this Python script (replace <MEMORY_ID> and <REGION> with actual values first):
+Use this Python script. Replace MEMORY_ID_HERE with the memoryId from Phase 0, and REGION_HERE with your AWS region:
 
+  MEMORY_ID="<paste memoryId from Phase 0>"
+  REGION="<REGION>"
   python3 -c "
-  import json, os
+  import json, os, sys
+  memory_id = sys.argv[1]
+  region = sys.argv[2]
   config_path = os.path.expanduser('~/.openclaw/openclaw.json')
   plugin_dir = os.path.realpath(os.path.expanduser('~/.openclaw/plugins/memory-agentcore'))
   with open(config_path, 'r') as f:
@@ -74,12 +91,15 @@ Use this Python script (replace <MEMORY_ID> and <REGION> with actual values firs
   cfg['plugins']['load'] = {'paths': [plugin_dir]}
   cfg['plugins']['entries']['memory-agentcore'] = {
       'enabled': True,
-      'config': {'memoryId': '<MEMORY_ID>', 'awsRegion': '<REGION>'}
+      'config': {'memoryId': memory_id, 'awsRegion': region}
   }
   with open(config_path, 'w') as f:
       json.dump(cfg, f, indent=2, ensure_ascii=False)
-  print('Done')
-  "
+  print(f'Done. memoryId={memory_id}, region={region}, path={plugin_dir}')
+  " "$MEMORY_ID" "$REGION"
+
+Verify the config was written correctly:
+  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); e=cfg['plugins']['entries']['memory-agentcore']; print(f'memoryId={e[\"config\"][\"memoryId\"]}'); print(f'path={cfg[\"plugins\"][\"load\"][\"paths\"][0]}'); assert not e['config']['memoryId'].startswith('<'), 'ERROR: memoryId still has placeholder!'; assert '~' not in cfg['plugins']['load']['paths'][0], 'ERROR: path contains ~!'"
 
 WARNING: Do NOT also run "openclaw plugins install ." — using both install and load.paths causes "duplicate plugin id" error.
 
@@ -174,13 +194,16 @@ If any test fails, report the specific error.
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| `plugins.load failed` | `~` in config paths | Use absolute path |
+| `plugins.load failed` | `~` in config paths | Use absolute path (`$HOME` expands in shell, `~` does not in Node.js) |
 | `duplicate plugin id` | Both `install` and `load.paths` | Remove `~/.openclaw/extensions/memory-agentcore/` |
 | `text.trim is not a function` | Old plugin version | `git pull && npm run build && openclaw gateway restart` |
-| `Connection: FAILED` | Bad credentials or memoryId | `aws sts get-caller-identity` + verify memoryId |
-| Recall returns empty | Index warm-up (30-60s) | Wait and retry, or use `agentcore_search` |
+| `Connection: FAILED` | Bad credentials or memoryId | `aws sts get-caller-identity` + verify memoryId in config |
+| Recall returns empty | Index warm-up (30-60s) | Wait and retry, or use `agentcore_search` as fallback |
 | `ValidationException: searchQuery` | Empty query | Fixed in latest; `git pull && npm run build` |
 | Tools not found | Plugin not loaded | Check `openclaw plugins list` and logs |
+| `AccessDeniedException` | Missing IAM permissions | Ensure bedrock-agentcore is available in your region |
+| `npm run build` fails | Node.js < v18 | Upgrade to Node.js v18+ |
+| Config placeholder not replaced | `<MEMORY_ID>` still in config | Re-run Phase 2 with actual memoryId |
 
 ## Updating
 
