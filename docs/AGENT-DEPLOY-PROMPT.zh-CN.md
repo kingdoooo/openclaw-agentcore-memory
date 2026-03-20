@@ -176,8 +176,8 @@ AGENTS_EOF
 
 Gateway 重启且插件加载后，`agentcore-guide` skill 负责后续一切：
 
-- **验证**：`Run agentcore-guide Phase 1` — 运行 20 项测试（12 项基础 + 8 项新功能）
-- **使用指南**：`Run agentcore-guide Phase 2` — 工具参考、共享记忆模式、配置说明
+- **验证**：`运行 agentcore-guide Phase 1` — 运行 20 项测试（12 项基础 + 8 项新功能）
+- **使用指南**：`运行 agentcore-guide Phase 2` — 工具参考、共享记忆模式、配置说明
 
 ---
 

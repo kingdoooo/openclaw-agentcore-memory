@@ -176,8 +176,8 @@ After restart, the agentcore-guide skill is available. Tell the user:
 
 After the gateway restarts and the plugin is loaded, the `agentcore-guide` skill handles everything:
 
-- **Verify**: `运行 agentcore-guide Phase 1` — runs 20 tests (12 core + 8 new features)
-- **Usage guide**: `运行 agentcore-guide Phase 2` — tool reference, shared memory patterns, configuration
+- **Verify**: `Run agentcore-guide Phase 1` — runs 20 tests (12 core + 8 new features)
+- **Usage guide**: `Run agentcore-guide Phase 2` — tool reference, shared memory patterns, configuration
 
 ---
 
