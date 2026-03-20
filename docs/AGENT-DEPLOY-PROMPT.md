@@ -1,12 +1,12 @@
 # OpenClaw Agent Deployment Prompt
 
-One prompt to deploy the memory-agentcore plugin. Send **Message 1** to your agent. After gateway restarts, send **Message 2**.
+Send the message below to your OpenClaw agent. It handles the full installation. After gateway restarts, the `agentcore-guide` skill becomes available for verification and usage guidance.
 
 Replace `<REGION>` with your AWS region (e.g., `us-west-2`).
 
 ---
 
-## Message 1: Deploy
+## Deploy Message
 
 ````
 Help me deploy the memory-agentcore plugin. Follow these phases exactly.
@@ -127,83 +127,61 @@ Your memory has two layers:
 | Save important facts/decisions | `agentcore_store` | Immediate write to long-term memory |
 | Find relevant memories | `agentcore_recall` | Semantic search. New records have 30-60s index delay |
 | Verify data exists / browse records | `agentcore_search` | List mode, no delay. Fallback if recall returns empty |
-| Update incorrect memories | `agentcore_correct` | Updates record in place, preserving ID |
-| Delete memories (GDPR) | `agentcore_forget` | Preview first (confirm=false), then delete |
+| Update incorrect memories | `agentcore_correct` | Updates in place, auto-retries on transient errors |
+| Delete memories (GDPR) | `agentcore_forget` | Preview first (confirm=false), then delete. Supports purge_scope for bulk deletion |
 | Share across agents | `agentcore_share` | Specify target_scopes: ["agent:other-bot", "project:xxx"] |
 | Search past experiences | `agentcore_episodes` | Finds patterns and reflections across sessions |
-| Check status | `agentcore_stats` | Connection health + strategy breakdown |
+| Check status | `agentcore_stats` | Connection health + strategy breakdown (cached 5 min) |
 
 ### Scoping (multi-agent)
 
-- Each agent's memories live in its own namespace (/agents/<id>)
-- All agents can read/write /global
-- Use agentcore_share to explicitly share to other agents' namespaces
-- Use scope parameter in recall/search to target specific namespaces
+**Namespace hierarchy**:
+- `/global` — All agents share. Default read/write.
+- `/agents/<id>` — Per-agent private space. Auto-recall searches here automatically.
+- `/projects/<id>` — Project-level shared space.
+- `/users/<id>` — Per-user space.
+- `/custom/<id>` — Freeform.
+
+**scope parameter syntax**: `"global"`, `"agent:sales-bot"`, `"project:ecommerce"`, `"user:kent"`
+
+**Cross-agent sharing**:
+- Write to other namespace: `agentcore_share` with target_scopes: ["agent:other-bot"]
+- Read from other namespace: `agentcore_recall` / `agentcore_search` with scope: "agent:other-bot"
+- Auto-recall default search: /global + own /agents/<id> + namespaces from agentAccess config
+
+**Access control** (openclaw.json → plugins.entries.memory-agentcore.config.scopes):
+```json
+{
+  "agentAccess": { "bot-a": ["agent:bot-b", "project:shared"] },
+  "writeAccess": { "bot-a": ["project:shared"] }
+}
+```
+With this config, bot-a's auto-recall searches /global + /agents/bot-a + /agents/bot-b + /projects/shared.
 AGENTS_EOF
 
 PHASE 4: RESTART
 
   openclaw gateway restart
 
-Connection will drop. This is normal. After restart I'll send verification steps.
+Connection will drop. This is normal.
+
+After restart, the agentcore-guide skill is available. Tell the user:
+
+> "Plugin installed. After reconnection, send me: '运行 agentcore-guide 验证' to run full verification."
 ````
 
 ---
 
-## Message 2: Verify (send after gateway restarts)
+## Post-Install
 
-````
-Run the memory-agentcore verification. Test each item and report PASS/FAIL:
+After the gateway restarts and the plugin is loaded, the `agentcore-guide` skill handles everything:
 
-1. openclaw plugins list — confirm memory-agentcore loaded
-2. openclaw agentcore-status — confirm Connection: OK, Ready: true
-3. Use agentcore_store tool: content "Verification test", category "fact", importance 0.8
-4. Use agentcore_recall tool: query "Verification test" (PARTIAL OK if index not ready, verify with agentcore_search)
-5. Use agentcore_search tool: scope "global", max_results 5
-6. Use agentcore_correct tool: update record from step 3, new_content "Verification - CORRECTED"
-7. Use agentcore_share tool: content "Shared test", target_scopes ["agent:test"]
-8. Use agentcore_stats tool: confirm connected: true
-9. Use agentcore_forget tool: search_query "Verification", confirm true — cleanup
-10. openclaw agentcore-sync — test file sync
-11. openclaw agentcore-remember "CLI store test" — test CLI storage
-12. Use agentcore_episodes tool: query "test", top_k 3 (0 results OK, no error = PASS)
-13. Check logs: grep -i "agentcore.*error" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log | tail -5
-
-Report:
-=== memory-agentcore Verification ===
- 1. Plugin Load:    [PASS/FAIL]
- 2. Connection:     [PASS/FAIL]
- 3. Store:          [PASS/FAIL]
- 4. Recall:         [PASS/FAIL/PARTIAL]
- 5. Search/List:    [PASS/FAIL]
- 6. Correct:        [PASS/FAIL]
- 7. Share:          [PASS/FAIL]
- 8. Stats:          [PASS/FAIL]
- 9. Forget:         [PASS/FAIL]
-10. File Sync:      [PASS/FAIL]
-11. CLI Remember:   [PASS/FAIL]
-12. Episodic:       [PASS/FAIL]
-13. Error Check:    [PASS/FAIL]
-Total: X/13 passed
-
-If any test fails, report the specific error.
-````
+- **Verify**: `运行 agentcore-guide Phase 1` — runs 20 tests (12 core + 8 new features)
+- **Usage guide**: `运行 agentcore-guide Phase 2` — tool reference, shared memory patterns, configuration
 
 ---
 
-## Message 3: New Features Test (v0.2+)
-
-After Message 2 passes, the plugin is installed and the `agentcore-setup` skill is available. Use it directly:
-
-````
-Run agentcore-setup Phase 3 to test the new features (score gap detection, stats cache, purge, retry, configurable noise filter).
-````
-
-> No need to paste detailed test steps — the agent loads them from the skill file automatically.
-
----
-
-## Troubleshooting
+## Troubleshooting (Installation)
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
@@ -211,12 +189,9 @@ Run agentcore-setup Phase 3 to test the new features (score gap detection, stats
 | `duplicate plugin id` | Both `install` and `load.paths` | Remove `~/.openclaw/extensions/memory-agentcore/` |
 | `text.trim is not a function` | Old plugin version | `git pull && npm run build && openclaw gateway restart` |
 | `Connection: FAILED` | Bad credentials or memoryId | `aws sts get-caller-identity` + verify memoryId in config |
-| Recall returns empty | Index warm-up (30-60s) | Wait and retry, or use `agentcore_search` as fallback |
-| `ValidationException: searchQuery` | Empty query | Fixed in latest; `git pull && npm run build` |
-| Tools not found | Plugin not loaded | Check `openclaw plugins list` and logs |
-| `AccessDeniedException` | Missing IAM permissions | Ensure bedrock-agentcore is available in your region |
 | `npm run build` fails | Node.js < v18 | Upgrade to Node.js v18+ |
 | Config placeholder not replaced | `<MEMORY_ID>` still in config | Re-run Phase 2 with actual memoryId |
+| `AccessDeniedException` | Missing IAM permissions | Ensure bedrock-agentcore is available in your region |
 
 ## Updating
 
