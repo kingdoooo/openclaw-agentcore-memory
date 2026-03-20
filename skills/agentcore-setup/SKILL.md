@@ -396,6 +396,251 @@ Total: X/12 passed (Pre-check excluded from count)
 
 ---
 
+## Phase 3: New Features Verification (v0.2)
+
+Tests for features added in the score-gap/purge/retry/noise update. Run these after Phase 2 passes.
+
+### Pre-check: Enable showScores
+
+Several tests below need to see similarity scores. Temporarily enable `showScores` in the plugin config:
+
+```bash
+python3 -c "
+import json, os
+config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+with open(config_path, 'r') as f:
+    cfg = json.load(f)
+cfg['plugins']['entries']['memory-agentcore']['config']['showScores'] = True
+with open(config_path, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+print('showScores enabled')
+"
+```
+
+Then restart gateway:
+
+```bash
+openclaw gateway restart
+```
+
+### Test N1: Score Gap Detection — Basic
+
+Seed 5 records with varying relevance, then search and observe score-based filtering.
+
+**Step 1: Seed test data**
+
+Use `agentcore_store` to create 5 records:
+1. content: `"The user prefers dark mode and monospace fonts for coding"`, category: `"preference"`, scope: `"global"`
+2. content: `"The user's favorite programming language is TypeScript"`, category: `"preference"`, scope: `"global"`
+3. content: `"TypeScript supports generics, union types, and mapped types"`, category: `"fact"`, scope: `"global"`
+4. content: `"The weather in Tokyo was sunny last Tuesday"`, category: `"fact"`, scope: `"global"`
+5. content: `"Bananas are a good source of potassium"`, category: `"fact"`, scope: `"global"`
+
+> Records 4-5 are intentionally irrelevant to create a score gap when searching for user preferences.
+
+**Step 2: Search and observe filtering**
+
+Use `agentcore_recall`:
+- query: `"What are the user's coding preferences?"`
+- limit: `5`
+
+**PASS criteria**:
+- Tool returns results without errors
+- Results include `score` field (showScores is enabled)
+- If score gap filtering is active: irrelevant records (weather, bananas) may be excluded. This depends on the actual score distribution — the algorithm filters results where the score drop between adjacent results exceeds 2x the mean drop.
+- Even if all 5 are returned (scores may be evenly spaced), the test passes as long as results are returned with scores visible.
+
+> **Note**: Score gap detection is most effective when there's a clear "cliff" in relevance. With a new memory resource, the index may not produce dramatic gaps yet. The key test is that the feature doesn't break recall.
+
+### Test N2: Score Gap Detection — Disabled
+
+Verify that disabling score gap returns the same or more results.
+
+**Step 1**: Temporarily disable score gap by setting environment variable:
+
+```bash
+export AGENTCORE_SCORE_GAP_ENABLED=false
+```
+
+Restart gateway, then use `agentcore_recall`:
+- query: `"What are the user's coding preferences?"`
+- limit: `5`
+
+**Step 2**: Compare with Test N1 results. With gap detection disabled, the result count should be >= the count from Test N1.
+
+**Step 3**: Re-enable (unset env var and restart):
+
+```bash
+unset AGENTCORE_SCORE_GAP_ENABLED
+openclaw gateway restart
+```
+
+**PASS** if disabled mode returns >= results than enabled mode (or equal if no gap was detected).
+
+### Test N3: Stats Cache
+
+Call `agentcore_stats` twice in quick succession and verify cache behavior.
+
+**Step 1**: Use `agentcore_stats` tool:
+- scope: `"global"`
+
+Note the response. It should contain `"cacheHit": false` (first call, cache cold).
+
+**Step 2**: Immediately use `agentcore_stats` again with the same scope.
+
+**PASS** if the second call returns `"cacheHit": true`. This confirms the 5-minute TTL in-memory cache is working.
+
+### Test N4: Purge — Tool Preview (Dry Run)
+
+Use `agentcore_forget` tool:
+- purge_scope: `true`
+- scope: `"agent:purge-test"`
+- confirm: `false`
+
+**PASS** if response contains `"purge_preview": true` and `"estimated_count"` field (likely 0 for a fresh scope). This verifies the preview mode works without deleting anything.
+
+### Test N5: Purge — Full Cycle
+
+**Step 1: Seed data in a test scope**
+
+Use `agentcore_store` to create 3 records in scope `"agent:purge-test"`:
+1. content: `"Purge test record A"`, scope: `"agent:purge-test"`
+2. content: `"Purge test record B"`, scope: `"agent:purge-test"`
+3. content: `"Purge test record C"`, scope: `"agent:purge-test"`
+
+**Step 2: Preview purge**
+
+Use `agentcore_forget`:
+- purge_scope: `true`
+- scope: `"agent:purge-test"`
+- confirm: `false`
+
+Verify `estimated_count` >= 3.
+
+**Step 3: Execute purge**
+
+Use `agentcore_forget`:
+- purge_scope: `true`
+- scope: `"agent:purge-test"`
+- confirm: `true`
+
+**PASS** if `"purged": true` and `"count"` >= 3.
+
+**Step 4: Verify empty**
+
+Use `agentcore_search`:
+- scope: `"agent:purge-test"`
+- max_results: `5`
+
+**PASS** if returns 0 records.
+
+### Test N6: Purge — CLI
+
+```bash
+openclaw agentcore-purge global
+```
+
+**PASS** if output contains `[DRY RUN] Would delete` (doesn't actually delete without `--confirm`).
+
+> **⚠️ WARNING**: Do NOT run `openclaw agentcore-purge global --confirm` during testing unless you want to delete all global records. Use a dedicated test scope (e.g., `agent:purge-test`) for destructive tests.
+
+### Test N7: Correct with Retry
+
+The exponential backoff retry (200ms → 400ms → 800ms) is transparent — it only activates on 5xx/ThrottlingException errors. This test verifies the correct tool still works normally with the retry wrapper.
+
+Use `agentcore_store`:
+- content: `"Retry test: original content"`
+- scope: `"global"`
+
+Note the `recordId`, then use `agentcore_correct`:
+- record_id: `<ID from store>`
+- new_content: `"Retry test: CORRECTED content"`
+
+**PASS** if `"corrected": true, "method": "update"`.
+
+Then clean up:
+Use `agentcore_forget`:
+- record_ids: `[<ID from store>]`
+
+### Test N8: Configurable Noise Filter — Verify Defaults
+
+The noise filter now supports user-defined `noisePatterns` and `bypassPatterns` (both default to empty arrays). Verify the default behavior is unchanged.
+
+Check that built-in noise filtering still works by triggering auto-capture:
+
+1. Send a greeting message like `"hello"` in a conversation
+2. Check logs for noise filter activity:
+
+```bash
+grep -i "auto-capture\|auto-recall\|noise" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null | tail -10
+```
+
+**PASS** if no errors in logs. The greeting should be filtered by the built-in patterns (you should see the auto-capture not triggering for simple greetings).
+
+### Phase 3 Cleanup
+
+Clean up the seed data from Test N1:
+
+Use `agentcore_forget`:
+- search_query: `"dark mode monospace fonts"`
+- confirm: `true`
+- scope: `"global"`
+
+Use `agentcore_forget`:
+- search_query: `"favorite programming language TypeScript"`
+- confirm: `true`
+- scope: `"global"`
+
+Use `agentcore_forget`:
+- search_query: `"TypeScript supports generics"`
+- confirm: `true`
+- scope: `"global"`
+
+Use `agentcore_forget`:
+- search_query: `"weather in Tokyo"`
+- confirm: `true`
+- scope: `"global"`
+
+Use `agentcore_forget`:
+- search_query: `"Bananas potassium"`
+- confirm: `true`
+- scope: `"global"`
+
+### Restore showScores
+
+```bash
+python3 -c "
+import json, os
+config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+with open(config_path, 'r') as f:
+    cfg = json.load(f)
+cfg['plugins']['entries']['memory-agentcore']['config']['showScores'] = False
+with open(config_path, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+print('showScores restored to false')
+"
+openclaw gateway restart
+```
+
+### Phase 3 Results
+
+```
+=== memory-agentcore New Features (v0.2) ===
+
+ N1. Score Gap — Basic:       [PASS/FAIL]
+ N2. Score Gap — Disabled:    [PASS/FAIL]
+ N3. Stats Cache:             [PASS/FAIL]
+ N4. Purge — Preview:         [PASS/FAIL]
+ N5. Purge — Full Cycle:      [PASS/FAIL]
+ N6. Purge — CLI:             [PASS/FAIL]
+ N7. Correct with Retry:      [PASS/FAIL]
+ N8. Noise Filter Defaults:   [PASS/FAIL]
+
+Total: X/8 passed
+```
+
+---
+
 ## Known Issues & Troubleshooting
 
 ### Plugin Load Failures
