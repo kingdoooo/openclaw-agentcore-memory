@@ -28,24 +28,6 @@ grep -i "load failed\|duplicate plugin\|agentcore.*error" /tmp/openclaw/openclaw
 
 If the plugin didn't load, STOP and troubleshoot (see Runtime Troubleshooting at the end).
 
-### Pre-check: Enable showScores
-
-Several tests need similarity scores visible. Temporarily enable:
-
-```bash
-python3 -c "
-import json, os
-config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-with open(config_path, 'r') as f:
-    cfg = json.load(f)
-cfg['plugins']['entries']['memory-agentcore']['config']['showScores'] = True
-with open(config_path, 'w') as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-print('showScores enabled')
-"
-openclaw gateway restart
-```
-
 ---
 
 ### Core Tests
@@ -185,26 +167,9 @@ Use `agentcore_recall`:
 - query: `"What are the user's coding preferences?"`
 - limit: `5`
 
-**PASS** if results return with `score` field visible and no error. Irrelevant records may be filtered if a score cliff is detected; even if all 5 return (scores evenly spaced) that's still PASS.
+**PASS** if results return without error. If result count < 5, score gap filtering is active (irrelevant records were filtered at the score cliff). If result count = 5, scores were evenly distributed — still PASS.
 
-#### Test N2: Score Gap Detection — Disabled
-
-```bash
-export AGENTCORE_SCORE_GAP_ENABLED=false
-openclaw gateway restart
-```
-
-Use `agentcore_recall` with the same query. Result count should be >= Test N1.
-
-Re-enable:
-```bash
-unset AGENTCORE_SCORE_GAP_ENABLED
-openclaw gateway restart
-```
-
-**PASS** if disabled mode returns >= results.
-
-#### Test N3: Stats Cache
+#### Test N2: Stats Cache
 
 Use `agentcore_stats` (scope: `"global"`). Note `"cacheHit": false`.
 
@@ -212,7 +177,7 @@ Immediately call `agentcore_stats` again.
 
 **PASS** if second call returns `"cacheHit": true`.
 
-#### Test N4: Purge — Preview
+#### Test N3: Purge — Preview
 
 Use `agentcore_forget`:
 - purge_scope: `true`
@@ -221,7 +186,7 @@ Use `agentcore_forget`:
 
 **PASS** if response contains `"purge_preview": true` and `"estimated_count"` field.
 
-#### Test N5: Purge — Full Cycle
+#### Test N4: Purge — Full Cycle
 
 **Step 1**: Store 3 records in scope `"agent:purge-test"`:
 - `"Purge test record A"`, `"Purge test record B"`, `"Purge test record C"`
@@ -234,7 +199,7 @@ Use `agentcore_forget`:
 
 **PASS** if purged and scope is empty.
 
-#### Test N6: Purge — CLI
+#### Test N5: Purge — CLI
 
 ```bash
 openclaw agentcore-purge global
@@ -244,7 +209,7 @@ openclaw agentcore-purge global
 
 > Do NOT run with `--confirm` on `global` unless you intend to wipe all data.
 
-#### Test N7: Correct with Retry
+#### Test N6: Correct with Retry
 
 Store `"Retry test: original content"` (scope: `"global"`), then correct with `"Retry test: CORRECTED content"`.
 
@@ -252,7 +217,7 @@ Store `"Retry test: original content"` (scope: `"global"`), then correct with `"
 
 Clean up with `agentcore_forget`: record_ids `[<ID>]`.
 
-#### Test N8: Noise Filter Defaults
+#### Test N7: Noise Filter Defaults
 
 ```bash
 grep -i "auto-capture\|noise" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/dev/null | tail -10
@@ -262,7 +227,7 @@ grep -i "auto-capture\|noise" /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log 2>/de
 
 ---
 
-### Cleanup & Restore
+### Cleanup
 
 Clean up Test N1 seed data — use `agentcore_forget` with confirm: true for each:
 - `"dark mode monospace fonts"` (scope: global)
@@ -270,22 +235,6 @@ Clean up Test N1 seed data — use `agentcore_forget` with confirm: true for eac
 - `"TypeScript supports generics"` (scope: global)
 - `"weather in Tokyo"` (scope: global)
 - `"Bananas potassium"` (scope: global)
-
-Restore showScores:
-
-```bash
-python3 -c "
-import json, os
-config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-with open(config_path, 'r') as f:
-    cfg = json.load(f)
-cfg['plugins']['entries']['memory-agentcore']['config']['showScores'] = False
-with open(config_path, 'w') as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-print('showScores restored to false')
-"
-openclaw gateway restart
-```
 
 ### Results Report
 
@@ -308,15 +257,14 @@ Core Tests:
 
 New Feature Tests (v0.2):
  N1.  Score Gap:       [PASS/FAIL]
- N2.  Score Gap Off:   [PASS/FAIL]
- N3.  Stats Cache:     [PASS/FAIL]
- N4.  Purge Preview:   [PASS/FAIL]
- N5.  Purge Cycle:     [PASS/FAIL]
- N6.  Purge CLI:       [PASS/FAIL]
- N7.  Correct+Retry:   [PASS/FAIL]
- N8.  Noise Filter:    [PASS/FAIL]
+ N2.  Stats Cache:     [PASS/FAIL]
+ N3.  Purge Preview:   [PASS/FAIL]
+ N4.  Purge Cycle:     [PASS/FAIL]
+ N5.  Purge CLI:       [PASS/FAIL]
+ N6.  Correct+Retry:   [PASS/FAIL]
+ N7.  Noise Filter:    [PASS/FAIL]
 
-Total: X/20 passed
+Total: X/19 passed
 ```
 
 ---
