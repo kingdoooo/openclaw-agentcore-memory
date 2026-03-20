@@ -49,12 +49,20 @@ export interface CustomRecordInput {
   metadata?: Record<string, string>;
 }
 
+interface StatsCacheEntry {
+  count: number;
+  updatedAt: number;
+}
+
 export class AgentCoreClient {
   private client: BedrockAgentCoreClient;
   private memoryId: string;
+  private statsCache = new Map<string, StatsCacheEntry>();
+  private statsCacheTtlMs: number;
 
   constructor(config: PluginConfig) {
     this.memoryId = config.memoryId;
+    this.statsCacheTtlMs = config.statsCacheTtlMs;
     this.client = new BedrockAgentCoreClient({
       region: config.awsRegion,
       credentials: config.awsProfile
@@ -183,7 +191,7 @@ export class AgentCoreClient {
     });
 
     const response = await this.client.send(command);
-    return {
+    const result = {
       successful: (response.successfulRecords ?? [])
         .filter((r) => r.status === "SUCCEEDED")
         .map((r) => r.memoryRecordId ?? ""),
@@ -191,6 +199,8 @@ export class AgentCoreClient {
         (r) => r.errorMessage ?? r.memoryRecordId ?? "unknown",
       ),
     };
+    if (result.successful.length > 0) this.invalidateStatsCache();
+    return result;
   }
 
   async batchUpdateRecords(
@@ -227,6 +237,7 @@ export class AgentCoreClient {
       memoryRecordId: recordId,
     });
     await this.client.send(command);
+    this.invalidateStatsCache();
   }
 
   async batchDeleteRecords(recordIds: string[]): Promise<void> {
@@ -235,6 +246,27 @@ export class AgentCoreClient {
       records: recordIds.map((id) => ({ memoryRecordId: id })),
     });
     await this.client.send(command);
+    if (recordIds.length > 0) this.invalidateStatsCache();
+  }
+
+  getStatsCached(
+    key: string,
+  ): { count: number; updatedAt: number } | undefined {
+    const entry = this.statsCache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.updatedAt > this.statsCacheTtlMs) {
+      this.statsCache.delete(key);
+      return undefined;
+    }
+    return entry;
+  }
+
+  setStatsCache(key: string, count: number): void {
+    this.statsCache.set(key, { count, updatedAt: Date.now() });
+  }
+
+  invalidateStatsCache(): void {
+    this.statsCache.clear();
   }
 
   dispose(): void {

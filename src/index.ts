@@ -9,6 +9,7 @@ import {
 import { parseAgentIdFromSessionKey } from "./identity.js";
 import { isNoise } from "./noise-filter.js";
 import { shouldRetrieve } from "./adaptive-retrieval.js";
+import { filterByScoreGap } from "./score-filter.js";
 import { FileSync } from "./file-sync.js";
 import { createRecallTool } from "./tools/recall.js";
 import { createStoreTool } from "./tools/store.js";
@@ -177,9 +178,10 @@ const plugin = {
 
           if (allRecords.length === 0) return;
 
-          // Sort by score, take top K
+          // Sort by score, take top K, then apply score gap filter
           allRecords.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-          const topRecords = allRecords.slice(0, config.autoRecallTopK);
+          const topK = allRecords.slice(0, config.autoRecallTopK);
+          const topRecords = filterByScoreGap(topK, config);
 
           // Format as XML block
           const lines: string[] = ["<agentcore_memory>"];
@@ -225,8 +227,12 @@ const plugin = {
             if (lastPair.length === 0) return;
 
             // Noise filter
+            const noiseConfig = {
+              noisePatterns: config.noisePatterns,
+              bypassPatterns: config.bypassPatterns,
+            };
             const filtered = config.noiseFilterEnabled
-              ? lastPair.filter((m) => !isNoise(m.content ?? ""))
+              ? lastPair.filter((m) => !isNoise(m.content ?? "", noiseConfig))
               : lastPair;
 
             // Min length check
@@ -434,6 +440,56 @@ const plugin = {
           });
 
         prog
+          .command("agentcore-purge <scope>")
+          .description(
+            "Purge ALL records in a scope. Irreversible! Requires --confirm.",
+          )
+          .option("--confirm", "Actually delete (dry-run without this)")
+          .action(async (scope: unknown, opts: unknown) => {
+            if (!client) {
+              console.error("Client not initialized.");
+              return;
+            }
+            const namespace = scopeToNamespace(
+              parseScope(scope as string),
+            );
+            const o = opts as { confirm?: boolean };
+
+            // List all records
+            const allIds: string[] = [];
+            let nextToken: string | undefined;
+            do {
+              const page = await client.listMemoryRecords({
+                namespace,
+                maxResults: 100,
+                nextToken,
+              });
+              allIds.push(
+                ...page.records.map((r) => r.memoryRecordId),
+              );
+              nextToken = page.nextToken;
+            } while (nextToken);
+
+            if (!o.confirm) {
+              console.log(
+                `[DRY RUN] Would delete ${allIds.length} records in ${namespace}`,
+              );
+              console.log("Add --confirm to actually delete.");
+              return;
+            }
+
+            let deleted = 0;
+            for (let i = 0; i < allIds.length; i += 25) {
+              const chunk = allIds.slice(i, i + 25);
+              await client.batchDeleteRecords(chunk);
+              deleted += chunk.length;
+            }
+            console.log(
+              `Purged ${deleted} records from ${namespace}`,
+            );
+          });
+
+        prog
           .command("agentcore-episodes <query>")
           .description("Search episodic memory")
           .option("-k, --top-k <n>", "Top K results", "5")
@@ -568,6 +624,7 @@ const plugin = {
           "agentcore-search",
           "agentcore-list",
           "agentcore-forget",
+          "agentcore-purge",
           "agentcore-episodes",
           "agentcore-stats",
           "agentcore-sync",

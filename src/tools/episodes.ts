@@ -1,6 +1,7 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { buildEpisodicNamespace } from "../scopes.js";
+import { filterByScoreGap } from "../score-filter.js";
 
 export function createEpisodesTool(
   client: AgentCoreClient,
@@ -43,12 +44,14 @@ export function createEpisodesTool(
       const namespace = buildEpisodicNamespace(actorId);
 
       try {
-        const records = await client.retrieveMemoryRecords({
+        const rawRecords = await client.retrieveMemoryRecords({
           query,
           namespace,
           topK,
           strategyId: "EPISODIC",
         });
+
+        const records = filterByScoreGap(rawRecords, config);
 
         const episodes = records.map((r) => ({
           id: r.memoryRecordId,

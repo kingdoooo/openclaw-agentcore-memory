@@ -26,8 +26,16 @@ export function createStatsTool(
 
       try {
         const strategyCounts: Record<string, number> = {};
+        let cacheHit = false;
 
         for (const strategy of config.strategies) {
+          const cacheKey = `${namespace}:${strategy}`;
+          const cached = client.getStatsCached(cacheKey);
+          if (cached !== undefined) {
+            strategyCounts[strategy] = cached.count;
+            cacheHit = true;
+            continue;
+          }
           try {
             const result = await client.listMemoryRecords({
               namespace,
@@ -35,6 +43,7 @@ export function createStatsTool(
               maxResults: 1,
             });
             strategyCounts[strategy] = result.records.length;
+            client.setStatsCache(cacheKey, result.records.length);
           } catch {
             strategyCounts[strategy] = -1;
           }
@@ -47,6 +56,7 @@ export function createStatsTool(
           namespace,
           strategies: config.strategies,
           strategyCounts,
+          cacheHit,
           config: {
             autoRecallTopK: config.autoRecallTopK,
             autoCaptureEnabled: config.autoCaptureEnabled,

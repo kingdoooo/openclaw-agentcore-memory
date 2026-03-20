@@ -23,11 +23,16 @@ export function createForgetTool(client: AgentCoreClient) {
         confirm: {
           type: "boolean",
           description:
-            "Set true to actually delete search results (default: false)",
+            "Set true to actually delete search results or purge scope (default: false)",
         },
         scope: {
           type: "string",
-          description: "Scope for search_query (default: global)",
+          description: "Scope for search_query or purge_scope (default: global)",
+        },
+        purge_scope: {
+          type: "boolean",
+          description:
+            "Set true to delete ALL records in the given scope. Requires confirm=true. GDPR-compliant bulk deletion.",
         },
       },
     },
@@ -36,6 +41,62 @@ export function createForgetTool(client: AgentCoreClient) {
       const searchQuery = params.search_query as string | undefined;
       const confirm = (params.confirm as boolean) ?? false;
       const scopeStr = (params.scope as string) ?? "global";
+      const purgeScope = (params.purge_scope as boolean) ?? false;
+
+      // Purge entire scope
+      if (purgeScope) {
+        const namespace = scopeToNamespace(parseScope(scopeStr));
+        try {
+          // Count first
+          let totalCount = 0;
+          let nextToken: string | undefined;
+          const allIds: string[] = [];
+          do {
+            const page = await client.listMemoryRecords({
+              namespace,
+              maxResults: 100,
+              nextToken,
+            });
+            allIds.push(...page.records.map((r) => r.memoryRecordId));
+            totalCount += page.records.length;
+            nextToken = page.nextToken;
+          } while (nextToken);
+
+          if (!confirm) {
+            const data = {
+              deleted: false,
+              purge_preview: true,
+              scope: scopeStr,
+              namespace,
+              estimated_count: totalCount,
+              note: "Set confirm=true to permanently delete ALL records in this scope.",
+            };
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+              details: { deleted: false, previewCount: totalCount },
+            };
+          }
+
+          // Batch delete in chunks of 25
+          let deleted = 0;
+          for (let i = 0; i < allIds.length; i += 25) {
+            const chunk = allIds.slice(i, i + 25);
+            await client.batchDeleteRecords(chunk);
+            deleted += chunk.length;
+          }
+
+          const data = { deleted: true, purged: true, scope: scopeStr, namespace, count: deleted };
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+            details: { deleted: true, count: deleted },
+          };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Purge failed: ${err}` }) }],
+            details: { deleted: false },
+          };
+        }
+      }
 
       // Direct delete by IDs
       if (recordIds && recordIds.length > 0) {
@@ -98,7 +159,7 @@ export function createForgetTool(client: AgentCoreClient) {
       }
 
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: "Provide record_ids or search_query." }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: "Provide record_ids, search_query, or purge_scope." }) }],
         details: { deleted: false },
       };
     },

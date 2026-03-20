@@ -1,5 +1,31 @@
 import type { AgentCoreClient } from "../client.js";
 
+function isRetryable(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = (err as { name?: string }).name ?? "";
+  if (name === "ThrottlingException" || name === "ServiceUnavailableException") return true;
+  const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+  return status !== undefined && status >= 500;
+}
+
+async function retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
+  const delays = [200, 400, 800];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < delays.length && isRetryable(err)) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 export function createCorrectTool(client: AgentCoreClient) {
   return {
     name: "agentcore_correct",
@@ -25,10 +51,12 @@ export function createCorrectTool(client: AgentCoreClient) {
       const newContent = params.new_content as string;
 
       try {
-        // Try batch update first (preserves original record ID)
-        const updateResult = await client.batchUpdateRecords([
-          { memoryRecordId: recordId, content: newContent },
-        ]);
+        // Try batch update with exponential backoff for transient errors
+        const updateResult = await retryWithBackoff(() =>
+          client.batchUpdateRecords([
+            { memoryRecordId: recordId, content: newContent },
+          ]),
+        );
 
         if (updateResult.successful.length > 0) {
           const data = {

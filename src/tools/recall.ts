@@ -1,6 +1,7 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace } from "../scopes.js";
+import { filterByScoreGap } from "../score-filter.js";
 
 export function createRecallTool(
   client: AgentCoreClient,
@@ -51,12 +52,14 @@ export function createRecallTool(
       const namespace = scopeToNamespace(scope);
 
       try {
-        const records = await client.retrieveMemoryRecords({
+        const rawRecords = await client.retrieveMemoryRecords({
           query,
           namespace,
           topK: limit,
           ...(strategy ? { strategyId: strategy } : {}),
         });
+
+        const records = filterByScoreGap(rawRecords, config);
 
         const results = records.map((r) => ({
           id: r.memoryRecordId,

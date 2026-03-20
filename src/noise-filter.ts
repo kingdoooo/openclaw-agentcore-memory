@@ -50,10 +50,36 @@ const META_PATTERNS = [
   /^你(?:是谁|能做什么|会什么)/,
 ];
 
-export function classifyNoise(text: unknown): NoiseFilterResult {
+export interface NoiseFilterConfig {
+  noisePatterns: string[];
+  bypassPatterns: string[];
+}
+
+export function classifyNoise(
+  text: unknown,
+  config?: NoiseFilterConfig,
+): NoiseFilterResult {
   if (typeof text !== "string") return { isNoise: false };
   const trimmed = text.trim();
   if (!trimmed) return { isNoise: true, category: "greeting" };
+
+  // Configurable bypass patterns — if matched, skip all checks
+  if (config?.bypassPatterns) {
+    for (const pat of config.bypassPatterns) {
+      try {
+        if (new RegExp(pat).test(trimmed)) return { isNoise: false };
+      } catch { /* invalid regex — skip */ }
+    }
+  }
+
+  // Configurable noise patterns — if matched, treat as noise
+  if (config?.noisePatterns) {
+    for (const pat of config.noisePatterns) {
+      try {
+        if (new RegExp(pat).test(trimmed)) return { isNoise: true, category: "meta" };
+      } catch { /* invalid regex — skip */ }
+    }
+  }
 
   if (SLASH_COMMAND_PATTERN.test(trimmed)) {
     return { isNoise: true, category: "slash_command" };
@@ -78,6 +104,6 @@ export function classifyNoise(text: unknown): NoiseFilterResult {
   return { isNoise: false };
 }
 
-export function isNoise(text: unknown): boolean {
-  return classifyNoise(text).isNoise;
+export function isNoise(text: unknown, config?: NoiseFilterConfig): boolean {
+  return classifyNoise(text, config).isNoise;
 }

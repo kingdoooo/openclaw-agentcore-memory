@@ -26,6 +26,12 @@ export interface PluginConfig {
   scopes: ScopesConfig;
   eventExpiryDays: number;
   showScores: boolean;
+  scoreGapEnabled: boolean;
+  scoreGapMultiplier: number;
+  minScoreFloor: number;
+  noisePatterns: string[];
+  bypassPatterns: string[];
+  statsCacheTtlMs: number;
   fileSyncEnabled: boolean;
   fileSyncPaths: string[];
   maxRetries: number;
@@ -46,6 +52,12 @@ const DEFAULTS: PluginConfig = {
   scopes: { agentAccess: {}, writeAccess: {} },
   eventExpiryDays: 90,
   showScores: false,
+  scoreGapEnabled: true,
+  scoreGapMultiplier: 2.0,
+  minScoreFloor: 0.0,
+  noisePatterns: [],
+  bypassPatterns: [],
+  statsCacheTtlMs: 5 * 60 * 1000,
   fileSyncEnabled: true,
   fileSyncPaths: ["MEMORY.md", "USER.md", "SOUL.md", "TOOLS.md", "memory/*.md"],
   maxRetries: 3,
@@ -97,6 +109,18 @@ function bool(
 
 function arr<T>(raw: unknown, fallback: T[]): T[] {
   if (Array.isArray(raw) && raw.length > 0) return raw as T[];
+  return fallback;
+}
+
+function parseCommaSeparated(
+  env: string | undefined,
+  raw: unknown,
+  fallback: string[],
+): string[] {
+  if (env !== undefined && env !== "") {
+    return env.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (Array.isArray(raw)) return raw.filter((s): s is string => typeof s === "string" && s !== "");
   return fallback;
 }
 
@@ -174,6 +198,36 @@ export function resolveConfig(
       env.AGENTCORE_SHOW_SCORES,
       raw.showScores,
       DEFAULTS.showScores,
+    ),
+    scoreGapEnabled: bool(
+      env.AGENTCORE_SCORE_GAP_ENABLED,
+      raw.scoreGapEnabled,
+      DEFAULTS.scoreGapEnabled,
+    ),
+    scoreGapMultiplier: num(
+      env.AGENTCORE_SCORE_GAP_MULTIPLIER,
+      raw.scoreGapMultiplier,
+      DEFAULTS.scoreGapMultiplier,
+    ),
+    minScoreFloor: num(
+      env.AGENTCORE_MIN_SCORE_FLOOR,
+      raw.minScoreFloor,
+      DEFAULTS.minScoreFloor,
+    ),
+    noisePatterns: parseCommaSeparated(
+      env.AGENTCORE_NOISE_PATTERNS,
+      raw.noisePatterns,
+      DEFAULTS.noisePatterns,
+    ),
+    bypassPatterns: parseCommaSeparated(
+      env.AGENTCORE_BYPASS_PATTERNS,
+      raw.bypassPatterns,
+      DEFAULTS.bypassPatterns,
+    ),
+    statsCacheTtlMs: num(
+      env.AGENTCORE_STATS_CACHE_TTL_MS,
+      raw.statsCacheTtlMs,
+      DEFAULTS.statsCacheTtlMs,
     ),
     fileSyncEnabled: bool(
       env.AGENTCORE_FILE_SYNC_ENABLED,
