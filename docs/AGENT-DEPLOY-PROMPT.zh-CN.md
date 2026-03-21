@@ -1,6 +1,6 @@
 # OpenClaw Agent 部署指南
 
-将下方的消息发送给你的 OpenClaw agent，它会自动完成整个安装流程。Gateway 重启后，`agentcore-guide` skill 即可用于验证和使用指导。
+将下方的消息发送给你的 OpenClaw agent，它会自动完成整个安装流程。Gateway 重启后，两个 skill 可用：`agentcore-memory-validation`（19 项自动化测试）和 `agentcore-memory-guide`（使用指南）。
 
 将 `<REGION>` 替换为你的 AWS 区域（如 `us-west-2`）。
 
@@ -128,7 +128,7 @@ cat >> "$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HO
 | 查找相关记忆 | `agentcore_recall` | 语义搜索，新记录有 30-60 秒索引延迟 |
 | 验证数据存在 / 浏览记录 | `agentcore_search` | 列表模式，无延迟。recall 为空时的回退方案 |
 | 更新错误记忆 | `agentcore_correct` | 原地更新，瞬态错误自动重试 |
-| 删除记忆（GDPR） | `agentcore_forget` | 先预览（confirm=false），再删除。支持 purge_scope 批量清除 |
+| 删除记忆 | `agentcore_forget` | 先预览（confirm=false），再删除。支持 purge_scope 批量清除 |
 | 跨 Agent 共享 | `agentcore_share` | 指定 target_scopes: ["agent:other-bot", "project:xxx"] |
 | 搜索过往经验 | `agentcore_episodes` | 查找跨会话的模式和反思 |
 | 检查状态 | `agentcore_stats` | 连接状态 + 策略分布（缓存 5 分钟） |
@@ -165,19 +165,19 @@ AGENTS_EOF
 
 连接会断开，这是正常的。
 
-重启后 agentcore-guide skill 即可使用。告知用户：
+重启后 agentcore-memory-validation skill 即可使用。告知用户：
 
-> "插件已安装。重新连接后，发送 '运行 agentcore-guide 验证' 即可执行完整验证。"
+> "插件已安装。重新连接后，发送 '运行 agentcore-memory-validation' 即可执行完整验证。"
 ````
 
 ---
 
 ## 安装后
 
-Gateway 重启且插件加载后，`agentcore-guide` skill 负责后续一切：
+Gateway 重启且插件加载后：
 
-- **验证**：`运行 agentcore-guide Phase 1` — 运行 19 项测试（12 项基础 + 7 项新功能），无需重启
-- **使用指南**：`运行 agentcore-guide Phase 2` — 工具参考、共享记忆模式、配置说明
+- **验证**：`运行 agentcore-memory-validation` — 19 项自动化测试，无需重启
+- **使用指南**：`运行 agentcore-memory-guide` — 工具参考、共享记忆、配置、最佳实践
 
 ---
 

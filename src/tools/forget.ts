@@ -6,7 +6,7 @@ export function createForgetTool(client: AgentCoreClient) {
     name: "agentcore_forget",
     label: "AgentCore Forget",
     description:
-      "Delete memories from AgentCore. GDPR-compliant deletion. Use search_query to preview what would be deleted, then confirm with record IDs.",
+      "Delete memories from AgentCore. Use search_query to preview what would be deleted, then confirm with record IDs.",
     parameters: {
       type: "object",
       properties: {
@@ -32,7 +32,7 @@ export function createForgetTool(client: AgentCoreClient) {
         purge_scope: {
           type: "boolean",
           description:
-            "Set true to delete ALL records in the given scope. Requires confirm=true. GDPR-compliant bulk deletion.",
+            "Set true to delete ALL records in the given scope. Requires confirm=true.",
         },
       },
     },

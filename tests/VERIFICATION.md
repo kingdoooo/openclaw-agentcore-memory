@@ -167,7 +167,7 @@ Use agentcore_correct to update the record from the previous recall. Change the 
 
 ---
 
-### Step 8: GDPR Forget (Tool)
+### Step 8: Forget (Tool)
 
 **What**: Records can be previewed and deleted.
 

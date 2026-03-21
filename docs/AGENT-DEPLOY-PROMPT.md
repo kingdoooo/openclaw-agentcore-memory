@@ -1,6 +1,6 @@
 # OpenClaw Agent Deployment Prompt
 
-Send the message below to your OpenClaw agent. It handles the full installation. After gateway restarts, the `agentcore-guide` skill becomes available for verification and usage guidance.
+Send the message below to your OpenClaw agent. It handles the full installation. After gateway restarts, two skills become available: `agentcore-memory-validation` (19 automated tests) and `agentcore-memory-guide` (usage reference).
 
 Replace `<REGION>` with your AWS region (e.g., `us-west-2`).
 
@@ -128,7 +128,7 @@ Your memory has two layers:
 | Find relevant memories | `agentcore_recall` | Semantic search. New records have 30-60s index delay |
 | Verify data exists / browse records | `agentcore_search` | List mode, no delay. Fallback if recall returns empty |
 | Update incorrect memories | `agentcore_correct` | Updates in place, auto-retries on transient errors |
-| Delete memories (GDPR) | `agentcore_forget` | Preview first (confirm=false), then delete. Supports purge_scope for bulk deletion |
+| Delete memories | `agentcore_forget` | Preview first (confirm=false), then delete. Supports purge_scope for bulk deletion |
 | Share across agents | `agentcore_share` | Specify target_scopes: ["agent:other-bot", "project:xxx"] |
 | Search past experiences | `agentcore_episodes` | Finds patterns and reflections across sessions |
 | Check status | `agentcore_stats` | Connection health + strategy breakdown (cached 5 min) |
@@ -165,19 +165,19 @@ PHASE 4: RESTART
 
 Connection will drop. This is normal.
 
-After restart, the agentcore-guide skill is available. Tell the user:
+After restart, the agentcore-memory-validation skill is available. Tell the user:
 
-> "Plugin installed. After reconnection, send me: '运行 agentcore-guide 验证' to run full verification."
+> "Plugin installed. After reconnection, send me: '运行 agentcore-memory-validation' to run full verification."
 ````
 
 ---
 
 ## Post-Install
 
-After the gateway restarts and the plugin is loaded, the `agentcore-guide` skill handles everything:
+After the gateway restarts and the plugin is loaded:
 
-- **Verify**: `Run agentcore-guide Phase 1` — runs 19 tests (12 core + 7 new features), zero restarts
-- **Usage guide**: `Run agentcore-guide Phase 2` — tool reference, shared memory patterns, configuration
+- **Verify**: `Run agentcore-memory-validation` — 19 automated tests, zero restarts
+- **Usage guide**: `Run agentcore-memory-guide` — tool reference, shared memory, config, best practices
 
 ---
 

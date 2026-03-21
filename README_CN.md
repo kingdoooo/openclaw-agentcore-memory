@@ -219,12 +219,19 @@ openclaw agentcore-status
 |------|------|
 | `agentcore_recall` | 语义搜索已存储的记忆 |
 | `agentcore_store` | 保存事实/偏好/决策到长期记忆 |
-| `agentcore_forget` | 删除记忆（GDPR 合规，支持预览+确认） |
+| `agentcore_forget` | 删除记忆（支持预览+确认） |
 | `agentcore_correct` | 原地更新/修正现有记忆 |
 | `agentcore_search` | 按 namespace 和策略列出/筛选记录 |
 | `agentcore_stats` | 记忆统计和连接状态 |
 | `agentcore_share` | 跨 scope/namespace 共享记忆 |
 | `agentcore_episodes` | 搜索情景记忆中的历史经验 |
+
+## Skills
+
+| Skill | 触发方式 | 说明 |
+|-------|---------|------|
+| `agentcore-memory-validation` | `运行 agentcore-memory-validation` | 19 项自动化测试，无需重启 |
+| `agentcore-memory-guide` | `运行 agentcore-memory-guide` | 工具参考、共享记忆、配置、最佳实践 |
 
 ## CLI 命令
 

@@ -219,12 +219,19 @@ Uses the AWS SDK credential chain (in order):
 |------|-------------|
 | `agentcore_recall` | Semantic search through stored memories |
 | `agentcore_store` | Save facts/preferences/decisions to long-term memory |
-| `agentcore_forget` | Delete memories (GDPR-compliant, preview+confirm) |
+| `agentcore_forget` | Delete memories (preview+confirm) |
 | `agentcore_correct` | Update/correct existing memory in place |
 | `agentcore_search` | List/filter records by namespace and strategy |
 | `agentcore_stats` | Memory statistics and connection status |
 | `agentcore_share` | Share memory across multiple scopes/namespaces |
 | `agentcore_episodes` | Search episodic memory for past experiences |
+
+## Skills
+
+| Skill | Trigger | Description |
+|-------|---------|-------------|
+| `agentcore-memory-validation` | `Run agentcore-memory-validation` | 19 automated tests, zero restarts |
+| `agentcore-memory-guide` | `Run agentcore-memory-guide` | Tool reference, shared memory, config, best practices |
 
 ## CLI Commands
 
