@@ -33,6 +33,25 @@ Create a NEW dedicated Memory resource for this OpenClaw deployment. Do not reus
 - --memory-strategies uses tagged union format, each strategy is a separate JSON argument
 - Summary and episodic namespaces MUST contain {sessionId}
 - Episodic REQUIRES reflectionConfiguration (reflection namespace must be a prefix of the episodic namespace)
+- Namespace templates support variables: {actorId}, {sessionId}, {memoryStrategyId}
+- Choose ONE of the two options below based on your namespaceMode config
+
+Option A: Per-agent isolation (namespaceMode: "per-agent", default)
+Each agent's memories are stored in separate namespace paths. Recommended for multi-agent deployments.
+
+  aws bedrock-agentcore-control create-memory \
+    --name "openclaw_memory" \
+    --description "Shared memory for OpenClaw agents" \
+    --event-expiry-duration 90 \
+    --memory-strategies \
+      '{"semanticMemoryStrategy":{"name":"semantic","namespaces":["/semantic/{actorId}"]}}' \
+      '{"userPreferenceMemoryStrategy":{"name":"preferences","namespaces":["/preferences/{actorId}"]}}' \
+      '{"summaryMemoryStrategy":{"name":"summary","namespaces":["/summary/{actorId}/{sessionId}"]}}' \
+      '{"episodicMemoryStrategy":{"name":"episodic","namespaces":["/episodic/{actorId}/{sessionId}"],"reflectionConfiguration":{"namespaces":["/episodic/{actorId}"]}}}' \
+    --region <REGION>
+
+Option B: Shared namespaces (namespaceMode: "shared")
+All agents share the same namespace paths. Simpler but no isolation between agents.
 
   aws bedrock-agentcore-control create-memory \
     --name "openclaw_memory" \

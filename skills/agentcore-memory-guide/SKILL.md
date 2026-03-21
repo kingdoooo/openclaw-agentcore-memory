@@ -51,9 +51,12 @@ All tools accept a `scope` parameter:
 The `before_prompt_build` hook automatically searches these namespaces in parallel:
 1. `/global` — always
 2. `/agents/<current-agent-id>` — always
-3. Any namespace listed in `scopes.agentAccess` for this agent
+3. Strategy namespaces for current agent (controlled by `namespaceMode`):
+   - `per-agent`: `/semantic/<id>`, `/episodic/<id>`, `/preferences/<id>`, `/summary/<id>`
+   - `shared`: `/semantic`, `/episodic`, `/preferences`, `/summary`
+4. Authorized agents' namespaces from `scopes.agentAccess` (agent scopes also expand to their strategy namespaces)
 
-Results are merged, sorted by score, filtered by score gap detection, and injected as `<agentcore_memory>` context before each turn.
+Results are merged, deduplicated, sorted by score, filtered by score gap detection, and injected as `<agentcore_memory>` context before each turn.
 
 ### Cross-Agent Sharing Patterns
 
@@ -114,7 +117,7 @@ All settings have defaults. Configure in `openclaw.json` under `plugins.entries.
 | `autoCaptureMinLength` | `30` | `AGENTCORE_AUTO_CAPTURE_MIN_LENGTH` | Min combined message length |
 | `noiseFilterEnabled` | `true` | `AGENTCORE_NOISE_FILTER_ENABLED` | Filter greetings/heartbeats |
 | `adaptiveRetrievalEnabled` | `true` | `AGENTCORE_ADAPTIVE_RETRIEVAL_ENABLED` | Skip trivial query retrieval |
-| `namespaceMode` | `"per-agent"` | `AGENTCORE_NAMESPACE_MODE` | Namespace isolation mode |
+| `namespaceMode` | `"per-agent"` | `AGENTCORE_NAMESPACE_MODE` | Strategy namespace isolation: `per-agent` = `/semantic/{actorId}`, `shared` = flat `/semantic`. Must match AWS Memory namespace templates |
 | `showScores` | `false` | `AGENTCORE_SHOW_SCORES` | Show similarity scores |
 | `scoreGapEnabled` | `true` | `AGENTCORE_SCORE_GAP_ENABLED` | Score gap detection filter |
 | `scoreGapMultiplier` | `2.0` | `AGENTCORE_SCORE_GAP_MULTIPLIER` | Gap sensitivity (higher=lenient) |

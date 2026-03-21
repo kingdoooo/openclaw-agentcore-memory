@@ -49,7 +49,7 @@ export function createRecallTool(
       const strategy = params.strategy as string | undefined;
 
       const scope = parseScope(scopeStr);
-      const namespaces = scopeToSearchNamespaces(scope);
+      const namespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
 
       try {
         const allResults = await Promise.allSettled(
@@ -63,15 +63,23 @@ export function createRecallTool(
           ),
         );
 
-        const rawRecords = allResults
+        const merged = allResults
           .filter(
-            (r): r is PromiseFulfilledResult<typeof rawRecords extends never ? never : any[]> =>
+            (r): r is PromiseFulfilledResult<any[]> =>
               r.status === "fulfilled",
           )
           .flatMap((r) => r.value);
 
-        rawRecords.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
-        const topRecords = filterByScoreGap(rawRecords.slice(0, limit), config);
+        // Dedup by memoryRecordId (same record may appear in multiple namespaces)
+        const seen = new Set<string>();
+        const deduped = merged.filter((r: any) => {
+          if (seen.has(r.memoryRecordId)) return false;
+          seen.add(r.memoryRecordId);
+          return true;
+        });
+
+        deduped.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
+        const topRecords = filterByScoreGap(deduped.slice(0, limit), config);
 
         const results = topRecords.map((r: any) => ({
           id: r.memoryRecordId,

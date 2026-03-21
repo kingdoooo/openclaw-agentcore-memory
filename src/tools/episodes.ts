@@ -1,6 +1,6 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { buildEpisodicNamespace } from "../scopes.js";
+import { buildEpisodicNamespace, buildStrategyNamespaces } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createEpisodesTool(
@@ -42,10 +42,11 @@ export function createEpisodesTool(
       const topK = (params.top_k as number) ?? 5;
 
       const namespace = buildEpisodicNamespace(actorId);
-      // Also search the strategy namespace where createEvent stores episodic records
-      const searchNamespaces = [namespace, "/episodic"];
-      // Deduplicate
-      const uniqueNamespaces = [...new Set(searchNamespaces)];
+      // Also search the strategy episodic namespace (where createEvent stores records)
+      const episodicStrategyNs = actorId
+        ? buildStrategyNamespaces(actorId, config.namespaceMode).filter(ns => ns.startsWith("/episodic"))
+        : ["/episodic"];
+      const uniqueNamespaces = [...new Set([namespace, ...episodicStrategyNs])];
 
       try {
         const allResults = await Promise.allSettled(
@@ -59,15 +60,23 @@ export function createEpisodesTool(
           ),
         );
 
-        const rawRecords = allResults
+        const merged = allResults
           .filter(
             (r): r is PromiseFulfilledResult<any[]> =>
               r.status === "fulfilled",
           )
           .flatMap((r) => r.value);
 
-        rawRecords.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
-        const records = filterByScoreGap(rawRecords.slice(0, topK), config);
+        // Dedup by memoryRecordId
+        const seen = new Set<string>();
+        const deduped = merged.filter((r: any) => {
+          if (seen.has(r.memoryRecordId)) return false;
+          seen.add(r.memoryRecordId);
+          return true;
+        });
+
+        deduped.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
+        const records = filterByScoreGap(deduped.slice(0, topK), config);
 
         const episodes = records.map((r) => ({
           id: r.memoryRecordId,

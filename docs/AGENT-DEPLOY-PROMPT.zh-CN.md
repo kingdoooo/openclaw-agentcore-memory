@@ -33,6 +33,25 @@
 - --memory-strategies 使用 tagged union 格式，每个 strategy 是一个独立的 JSON 参数
 - Summary 和 episodic 的 namespaces 必须包含 {sessionId}
 - Episodic 必须有 reflectionConfiguration（reflection namespace 必须是 episodic namespace 的前缀）
+- Namespace 模板支持变量：{actorId}、{sessionId}、{memoryStrategyId}
+- 根据 namespaceMode 配置选择以下两种方案之一
+
+方案 A：按 Agent 隔离（namespaceMode: "per-agent"，默认）
+每个 agent 的记忆存储在独立的 namespace 路径下。推荐用于多 agent 部署。
+
+  aws bedrock-agentcore-control create-memory \
+    --name "openclaw_memory" \
+    --description "Shared memory for OpenClaw agents" \
+    --event-expiry-duration 90 \
+    --memory-strategies \
+      '{"semanticMemoryStrategy":{"name":"semantic","namespaces":["/semantic/{actorId}"]}}' \
+      '{"userPreferenceMemoryStrategy":{"name":"preferences","namespaces":["/preferences/{actorId}"]}}' \
+      '{"summaryMemoryStrategy":{"name":"summary","namespaces":["/summary/{actorId}/{sessionId}"]}}' \
+      '{"episodicMemoryStrategy":{"name":"episodic","namespaces":["/episodic/{actorId}/{sessionId}"],"reflectionConfiguration":{"namespaces":["/episodic/{actorId}"]}}}' \
+    --region <REGION>
+
+方案 B：共享 namespace（namespaceMode: "shared"）
+所有 agent 共享相同的 namespace 路径。更简单但 agent 之间没有隔离。
 
   aws bedrock-agentcore-control create-memory \
     --name "openclaw_memory" \

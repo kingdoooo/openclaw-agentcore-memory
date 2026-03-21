@@ -21,6 +21,18 @@ import { createEpisodesTool } from "./tools/episodes.js";
 import { createShareTool } from "./tools/share.js";
 import type { MemoryRecordResult } from "./client.js";
 
+/** Extract text from content that may be string or [{type,text}] array (OpenClaw format) */
+function extractText(content: any): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
+      .map((part: any) => part.text)
+      .join("\n");
+  }
+  return typeof content === "object" ? JSON.stringify(content) : String(content ?? "");
+}
+
 const NOT_READY_RESPONSE = {
   content: [
     {
@@ -107,7 +119,7 @@ const plugin = {
       createStoreTool(client),
       createForgetTool(client),
       createCorrectTool(client),
-      createSearchTool(client),
+      createSearchTool(client, config),
       createStatsTool(client, config),
       createEpisodesTool(client, config),
       createShareTool(client),
@@ -130,8 +142,7 @@ const plugin = {
         if (!client || !ready) return;
 
         try {
-          const rawPrompt = event.prompt;
-          const promptStr = (typeof rawPrompt === "string" ? rawPrompt : Array.isArray(rawPrompt) ? rawPrompt.filter((p: any) => p?.type === "text").map((p: any) => p.text).join("\n") : String(rawPrompt ?? "")).trim();
+          const promptStr = extractText(event.prompt).trim();
           if (!promptStr) return;
 
           // Adaptive retrieval gating
@@ -152,6 +163,7 @@ const plugin = {
           const namespaces = resolveAccessibleNamespaces(
             actorId,
             config.scopes,
+            config.namespaceMode,
           );
 
           // Parallel search across all accessible namespaces
@@ -212,18 +224,6 @@ const plugin = {
 
         void (async () => {
           try {
-            // Helper: extract text from content (may be string or [{type,text}] array)
-            const extractText = (content: any): string => {
-              if (typeof content === "string") return content;
-              if (Array.isArray(content)) {
-                return content
-                  .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
-                  .map((part: any) => part.text)
-                  .join("\n");
-              }
-              return typeof content === "object" ? JSON.stringify(content) : String(content ?? "");
-            };
-
             const messages = (event.messages ?? []) as Array<{ role?: string; content?: any }>;
             api.logger.debug(`[agentcore] agent_end messages count=${messages.length}`);
             if (messages.length === 0) { api.logger.debug(`[agentcore] agent_end skipped: no messages`); return; }

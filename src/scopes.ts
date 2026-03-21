@@ -1,4 +1,4 @@
-import type { ScopesConfig } from "./config.js";
+import type { ScopesConfig, NamespaceMode } from "./config.js";
 
 export type ScopeKind = "global" | "agent" | "project" | "user" | "custom";
 
@@ -38,14 +38,28 @@ export function scopeToNamespace(scope: Scope): string {
   }
 }
 
-/** Strategy namespace mapping for AgentCore createEvent-produced records */
-export const STRATEGY_NAMESPACES = ["/semantic", "/episodic", "/preferences", "/summary"] as const;
+/** Strategy base names matching AgentCore built-in strategies */
+const STRATEGY_BASES = ["semantic", "episodic", "preferences", "summary"] as const;
 
-/** Resolve all namespaces to search when querying a scope (includes strategy namespaces for 'global') */
-export function scopeToSearchNamespaces(scope: Scope): string[] {
+/** Build strategy namespace paths based on namespaceMode.
+ *  - "shared": flat paths like /semantic
+ *  - "per-agent": actor-scoped like /semantic/{actorId}
+ */
+export function buildStrategyNamespaces(actorId: string, mode: NamespaceMode): string[] {
+  if (mode === "shared") {
+    return STRATEGY_BASES.map(s => `/${s}`);
+  }
+  return STRATEGY_BASES.map(s => `/${s}/${sanitizeId(actorId)}`);
+}
+
+/** Resolve all namespaces to search for a given scope.
+ *  Only agent scope expands to strategy namespaces (createEvent actorId maps to agents).
+ *  global/project/user scopes return their primary namespace only.
+ */
+export function scopeToSearchNamespaces(scope: Scope, mode: NamespaceMode): string[] {
   const primary = scopeToNamespace(scope);
-  if (scope.kind === "global") {
-    return [primary, ...STRATEGY_NAMESPACES];
+  if (scope.kind === "agent" && scope.id) {
+    return [primary, ...buildStrategyNamespaces(scope.id, mode)];
   }
   return [primary];
 }
@@ -58,23 +72,28 @@ export function scopeToString(scope: Scope): string {
 export function resolveAccessibleNamespaces(
   actorId: string,
   scopesConfig: ScopesConfig,
+  mode: NamespaceMode,
 ): string[] {
-  const namespaces = ["/global"];
-  const agentNs = scopeToNamespace({ kind: "agent", id: actorId });
-  namespaces.push(agentNs);
+  const ns = new Set<string>();
+  ns.add("/global");
 
-  // Include AgentCore strategy namespaces (populated by createEvent)
-  namespaces.push("/semantic", "/episodic", "/preferences", "/summary");
+  // Current agent + its strategy namespaces
+  ns.add(scopeToNamespace({ kind: "agent", id: actorId }));
+  for (const sn of buildStrategyNamespaces(actorId, mode)) ns.add(sn);
 
+  // Authorized scopes — only agent scopes get strategy expansion
   const accessList = scopesConfig.agentAccess[actorId];
   if (accessList) {
     for (const scopeStr of accessList) {
-      const ns = scopeToNamespace(parseScope(scopeStr));
-      if (!namespaces.includes(ns)) namespaces.push(ns);
+      const scope = parseScope(scopeStr);
+      ns.add(scopeToNamespace(scope));
+      if (scope.kind === "agent" && scope.id) {
+        for (const sn of buildStrategyNamespaces(scope.id, mode)) ns.add(sn);
+      }
     }
   }
 
-  return namespaces;
+  return [...ns];
 }
 
 export function resolveWritableNamespaces(

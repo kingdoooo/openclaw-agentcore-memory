@@ -1,7 +1,8 @@
 import type { AgentCoreClient } from "../client.js";
-import { parseScope, scopeToNamespace, scopeToSearchNamespaces } from "../scopes.js";
+import type { PluginConfig } from "../config.js";
+import { parseScope, scopeToSearchNamespaces } from "../scopes.js";
 
-export function createSearchTool(client: AgentCoreClient) {
+export function createSearchTool(client: AgentCoreClient, config: PluginConfig) {
   return {
     name: "agentcore_search",
     label: "AgentCore Search",
@@ -22,11 +23,7 @@ export function createSearchTool(client: AgentCoreClient) {
         },
         max_results: {
           type: "number",
-          description: "Max results (default: 20)",
-        },
-        next_token: {
-          type: "string",
-          description: "Pagination token from previous search",
+          description: "Max results per namespace (default: 20)",
         },
       },
     },
@@ -34,10 +31,9 @@ export function createSearchTool(client: AgentCoreClient) {
       const scopeStr = (params.scope as string) ?? "global";
       const strategy = params.strategy as string | undefined;
       const maxResults = (params.max_results as number) ?? 20;
-      const nextToken = params.next_token as string | undefined;
 
       const scope = parseScope(scopeStr);
-      const namespaces = scopeToSearchNamespaces(scope);
+      const namespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
 
       try {
         const allResults = await Promise.allSettled(
@@ -46,27 +42,34 @@ export function createSearchTool(client: AgentCoreClient) {
               namespace: ns,
               strategyId: strategy,
               maxResults,
-              nextToken,
             }),
           ),
         );
 
-        const allRecords = allResults
+        const merged = allResults
           .filter(
             (r): r is PromiseFulfilledResult<{ records: any[]; nextToken?: string }> =>
               r.status === "fulfilled",
           )
           .flatMap((r) => r.value.records);
 
+        // Dedup by memoryRecordId
+        const seen = new Set<string>();
+        const deduped = merged.filter((r: any) => {
+          if (seen.has(r.memoryRecordId)) return false;
+          seen.add(r.memoryRecordId);
+          return true;
+        });
+
         const data = {
-          records: allRecords.map((r: any) => ({
+          records: deduped.map((r: any) => ({
             id: r.memoryRecordId,
             content: r.content.slice(0, 300),
             strategy: r.memoryStrategyId,
             date: r.createdAt.toISOString().split("T")[0],
             ...(r.metadata ? { metadata: r.metadata } : {}),
           })),
-          count: allRecords.length,
+          count: deduped.length,
           hasMore: false,
         };
         return {

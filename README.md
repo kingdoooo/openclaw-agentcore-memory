@@ -147,7 +147,7 @@ openclaw agentcore-status
 | `autoCaptureMinLength` | `30` | Min combined message length for capture |
 | `noiseFilterEnabled` | `true` | Filter greetings/heartbeats before capture |
 | `adaptiveRetrievalEnabled` | `true` | Skip trivial query retrieval |
-| `namespaceMode` | `per-agent` | `per-agent` / `per-user` / `shared` / `custom` |
+| `namespaceMode` | `per-agent` | Strategy namespace isolation: `per-agent` = `/semantic/{actorId}`, `shared` = flat `/semantic` |
 | `eventExpiryDays` | `90` | Short-term event retention |
 | `showScores` | `false` | Include similarity scores in recalled memories |
 | `fileSyncEnabled` | `true` | Auto-sync workspace files to AgentCore |
@@ -283,7 +283,7 @@ Multiple agents can share memory through a single Memory resource using namespac
 }
 ```
 
-Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by default. Additional cross-agent access configured via `scopes`. IAM policies provide server-side enforcement.
+Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by default. In `per-agent` mode, auto-recall also searches the agent's strategy namespaces (`/semantic/<id>`, `/episodic/<id>`, etc.) which are populated by `createEvent`. Additional cross-agent access configured via `scopes` — authorized agents' strategy namespaces are included automatically. IAM policies provide server-side enforcement.
 
 ### Scope Format
 

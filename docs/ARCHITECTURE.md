@@ -454,25 +454,35 @@ export function scopeToNamespace(scope: Scope): string {
 }
 ```
 
-`resolveAccessibleNamespaces()` 的实现（`src/scopes.ts:46-63`）：
+`resolveAccessibleNamespaces()` 的实现（`src/scopes.ts`）：
 
 ```typescript
 export function resolveAccessibleNamespaces(
   actorId: string,
   scopesConfig: ScopesConfig,
+  mode: NamespaceMode,                                     // "per-agent" | "shared" | ...
 ): string[] {
-  const namespaces = ["/global"];                          // 1. 始终包含 /global
-  const agentNs = scopeToNamespace({ kind: "agent", id: actorId });
-  namespaces.push(agentNs);                                // 2. 始终包含自己的命名空间
+  const ns = new Set<string>();
+  ns.add("/global");                                       // 1. 始终包含 /global
+  ns.add(scopeToNamespace({ kind: "agent", id: actorId })); // 2. 始终包含自己的命名空间
 
-  const accessList = scopesConfig.agentAccess[actorId];    // 3. 额外配置的读权限
+  // 3. 当前 agent 的策略命名空间（由 createEvent 写入）
+  for (const sn of buildStrategyNamespaces(actorId, mode)) ns.add(sn);
+  // per-agent → /semantic/<actorId>, /episodic/<actorId>, ...
+  // shared   → /semantic, /episodic, ...
+
+  // 4. 额外配置的读权限 — 只有 agent scope 会展开策略命名空间
+  const accessList = scopesConfig.agentAccess[actorId];
   if (accessList) {
     for (const scopeStr of accessList) {
-      const ns = scopeToNamespace(parseScope(scopeStr));
-      if (!namespaces.includes(ns)) namespaces.push(ns);
+      const scope = parseScope(scopeStr);
+      ns.add(scopeToNamespace(scope));
+      if (scope.kind === "agent" && scope.id) {
+        for (const sn of buildStrategyNamespaces(scope.id, mode)) ns.add(sn);
+      }
     }
   }
-  return namespaces;
+  return [...ns];
 }
 ```
 
@@ -483,8 +493,8 @@ export function resolveAccessibleNamespaces(
 ```
 before_prompt_build hook:
   1. 从 sessionKey 解析 actorId
-  2. resolveAccessibleNamespaces(actorId, config.scopes)
-     -> ["/global", "/agents/<actorId>", ...额外配置的命名空间]
+  2. resolveAccessibleNamespaces(actorId, config.scopes, config.namespaceMode)
+     -> ["/global", "/agents/<actorId>", "/semantic/<actorId>", "/episodic/<actorId>", ..., ...额外配置的命名空间]
   3. 对所有可访问命名空间并发 Promise.allSettled(RetrieveMemoryRecords)
   4. 合并结果 -> 按 score 排序 -> 取 top K -> score gap 过滤
   5. 格式化为 <agentcore_memory> XML block -> prependContext

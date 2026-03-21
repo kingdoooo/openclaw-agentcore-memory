@@ -147,7 +147,7 @@ openclaw agentcore-status
 | `autoCaptureMinLength` | `30` | 触发捕获的最小消息长度 |
 | `noiseFilterEnabled` | `true` | 过滤问候/心跳等噪声 |
 | `adaptiveRetrievalEnabled` | `true` | 跳过简单查询的检索 |
-| `namespaceMode` | `per-agent` | `per-agent` / `per-user` / `shared` / `custom` |
+| `namespaceMode` | `per-agent` | 策略 namespace 隔离模式：`per-agent` = `/semantic/{actorId}`，`shared` = 扁平 `/semantic` |
 | `eventExpiryDays` | `90` | 短期事件保留天数 |
 | `showScores` | `false` | 召回时显示相似度分数 |
 | `fileSyncEnabled` | `true` | 自动同步工作区文件 |
@@ -283,7 +283,7 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 }
 ```
 
-每个 Agent 默认读写自己的 namespace（`/agents/<id>`）+ `/global`。通过 `scopes` 配置额外的跨 Agent 访问权限。IAM 策略在服务端强制执行。
+每个 Agent 默认读写自己的 namespace（`/agents/<id>`）+ `/global`。在 `per-agent` 模式下，auto-recall 还会搜索该 agent 的策略 namespace（`/semantic/<id>`、`/episodic/<id>` 等，由 `createEvent` 写入）。通过 `scopes` 配置跨 Agent 访问权限——被授权 agent 的策略 namespace 会自动包含。IAM 策略在服务端强制执行。
 
 ### Scope 格式
 
