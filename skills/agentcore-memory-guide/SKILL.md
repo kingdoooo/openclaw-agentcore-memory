@@ -48,7 +48,7 @@ All tools accept a `scope` parameter:
 
 ### Auto-Recall Behavior
 
-The `before_agent_start` hook automatically searches these namespaces in parallel:
+The `before_prompt_build` hook automatically searches these namespaces in parallel:
 1. `/global` — always
 2. `/agents/<current-agent-id>` — always
 3. Any namespace listed in `scopes.agentAccess` for this agent

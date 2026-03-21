@@ -124,19 +124,14 @@ const plugin = {
       });
     }
 
-    // --- Hook: Auto-Recall (before_agent_start) ---
+    // --- Hook: Auto-Recall (before_prompt_build) ---
     if (config.autoRecallTopK > 0) {
-      api.on("before_agent_start", async (event: any) => {
+      api.on("before_prompt_build", async (event: any, ctx: any) => {
         if (!client || !ready) return;
 
         try {
-          const prompt =
-            event.prompt ??
-            event.messages?.[event.messages.length - 1]?.content ??
-            "";
-          const promptStr =
-            typeof prompt === "string" ? prompt : String(prompt);
-          if (!promptStr.trim()) return;
+          const promptStr = (event.prompt ?? "").trim();
+          if (!promptStr) return;
 
           // Adaptive retrieval gating
           if (config.adaptiveRetrievalEnabled) {
@@ -150,8 +145,8 @@ const plugin = {
           }
 
           // Resolve actor and namespaces
-          const actorId = event.sessionKey
-            ? parseAgentIdFromSessionKey(event.sessionKey)
+          const actorId = ctx.sessionKey
+            ? parseAgentIdFromSessionKey(ctx.sessionKey)
             : "default";
           const namespaces = resolveAccessibleNamespaces(
             actorId,
@@ -210,7 +205,7 @@ const plugin = {
 
     // --- Hook: Auto-Capture (agent_end) - fire-and-forget ---
     if (config.autoCaptureEnabled) {
-      api.on("agent_end", async (event: any) => {
+      api.on("agent_end", async (event: any, ctx: any) => {
         if (!client || !ready) return;
         if (!event.success) return;
 
@@ -243,11 +238,11 @@ const plugin = {
             );
             if (userLen < 20 || totalLen < config.autoCaptureMinLength) return;
 
-            const actorId = event.sessionKey
-              ? parseAgentIdFromSessionKey(event.sessionKey)
+            const actorId = ctx.sessionKey
+              ? parseAgentIdFromSessionKey(ctx.sessionKey)
               : "default";
             const sessionId =
-              event.sessionId ?? `session-${Date.now()}`;
+              ctx.sessionId ?? `session-${Date.now()}`;
 
             await client!.createEvent({
               actorId,

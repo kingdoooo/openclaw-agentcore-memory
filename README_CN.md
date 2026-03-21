@@ -316,7 +316,7 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 
 ### 生命周期 Hook
 
-- **`before_agent_start`**：自动召回 —— 搜索 AgentCore，将相关记忆注入 Prompt
+- **`before_prompt_build`**：自动召回 —— 搜索 AgentCore，将相关记忆注入 Prompt
 - **`agent_end`**：自动捕获（异步） —— 捕获最近一组对话 + 同步变更文件
 
 ### 优雅降级

@@ -144,7 +144,7 @@ Use agentcore_correct to update the record from the previous recall. Change the 
 
 ---
 
-### Step 7: Auto-Recall (before_agent_start Hook)
+### Step 7: Auto-Recall (before_prompt_build Hook)
 
 **What**: Relevant memories are automatically injected before each agent turn.
 

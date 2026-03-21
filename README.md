@@ -316,7 +316,7 @@ Local Memory (built-in memory-core)     Cloud Memory (memory-agentcore)
 
 ### Lifecycle Hooks
 
-- **`before_agent_start`**: Auto-recall — searches AgentCore, returns `{ prependContext }` with relevant memories
+- **`before_prompt_build`**: Auto-recall — searches AgentCore, returns `{ prependContext }` with relevant memories
 - **`agent_end`**: Auto-capture (fire-and-forget) — captures last message pair + syncs changed files
 
 ### Graceful Degradation
