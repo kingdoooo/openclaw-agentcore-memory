@@ -115,15 +115,41 @@ export function resolveWritableNamespaces(
   return namespaces;
 }
 
+/** Build episodic namespace path matching AWS strategy templates.
+ *  "per-agent": /episodic/{actorId}[/{sessionId}]
+ *  "shared":    /episodic[/{sessionId}]
+ */
 export function buildEpisodicNamespace(
   actorId?: string,
   sessionId?: string,
+  mode: NamespaceMode = "per-agent",
 ): string {
+  if (mode === "shared") {
+    return sessionId ? `/episodic/${sanitizeId(sessionId)}` : "/episodic";
+  }
   if (actorId && sessionId) {
-    return `/strategy/episodic/actor/${sanitizeId(actorId)}/session/${sanitizeId(sessionId)}`;
+    return `/episodic/${sanitizeId(actorId)}/${sanitizeId(sessionId)}`;
   }
   if (actorId) {
-    return `/strategy/episodic/actor/${sanitizeId(actorId)}`;
+    return `/episodic/${sanitizeId(actorId)}`;
   }
-  return "/strategy/episodic";
+  return "/episodic";
+}
+
+/** Session-scoped strategy namespaces (summary + episodic).
+ *  These match AWS templates that require {sessionId}.
+ */
+const SESSION_SCOPED_STRATEGIES = ["summary", "episodic"] as const;
+
+export function buildSessionNamespaces(
+  actorId: string,
+  sessionId: string,
+  mode: NamespaceMode,
+): string[] {
+  if (mode === "shared") {
+    return SESSION_SCOPED_STRATEGIES.map(s => `/${s}/${sanitizeId(sessionId)}`);
+  }
+  return SESSION_SCOPED_STRATEGIES.map(
+    s => `/${s}/${sanitizeId(actorId)}/${sanitizeId(sessionId)}`,
+  );
 }

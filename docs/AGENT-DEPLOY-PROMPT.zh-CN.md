@@ -23,15 +23,33 @@
 如果 Node.js 未安装或版本低于 18，停止并告知用户需要升级。也可以询问用户是否需要代为安装。
 如果 Git 未安装，停止并告知用户需要安装。也可以询问用户是否需要代为安装。
 
-阶段 0：创建 AWS MEMORY 资源
+阶段 0：创建或加入 MEMORY 资源
+
+跨 Agent 共享记忆只能在同一个 Memory ID 内实现。不同的 Memory ID 完全隔离，无法跨 Memory ID 共享。
 
 先列出已有资源：
   aws bedrock-agentcore-control list-memories --region <REGION>
 
-为本次 OpenClaw 部署创建一个全新的 Memory 资源。不要复用其他项目的 Memory 资源 — 不同项目的 strategies 和 namespaces 可能不兼容，数据会混在一起。注意：
+询问用户："这是一个全新的独立 Agent，还是需要与现有 Agent 共享记忆？"
+
+  选项 A：创建新 Memory（独立部署或组内首个 Agent）
+    → 执行下方的 create-memory 命令，保存生成的 Memory ID。
+
+  选项 B：加入已有 Memory（与其他 Agent 共享）
+    → 向用户索要已有的 Memory ID。
+    → 策略模板是 Memory 级别的配置，不是 Agent 级别的。
+      共享同一 Memory ID 的所有 Agent 自动使用相同的策略。
+    → 跳过 create-memory，在阶段 2 直接使用该 Memory ID。
+    → 验证已有 Memory：
+      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <REGION>
+    → 确认 Memory ID 后直接跳到阶段 1。
+
+--- 如果创建新 Memory 资源 ---
+
+不要复用其他项目的 Memory 资源 — 不同项目的 strategies 和 namespaces 可能不兼容，数据会混在一起。注意：
 - CLI 服务名是 "bedrock-agentcore-control"（控制面），不是 "bedrock-agentcore"
 - --memory-strategies 使用 tagged union 格式，每个 strategy 是一个独立的 JSON 参数
-- Summary 和 episodic 的 namespaces 必须包含 {sessionId}
+- Summary 和 episodic 的 namespaces 必须包含 {sessionId}（AWS 对会话级策略的要求）
 - Episodic 必须有 reflectionConfiguration（reflection namespace 必须是 episodic namespace 的前缀）
 - Namespace 模板支持变量：{actorId}、{sessionId}、{memoryStrategyId}
 - 根据 namespaceMode 配置选择以下两种方案之一
@@ -86,6 +104,15 @@
 如果 npm run build 失败，检查输出中的 TypeScript 错误。
 
 阶段 2：配置
+
+重要 — AGENT ID 检查（当多个 Agent 共享同一 Memory ID 时）：
+共享 Memory ID 的每个 Agent 必须有唯一的 agent ID，在 openclaw.json 的 agents.list[].id 中设置。
+如果没有设置唯一 ID，所有 Agent 默认使用 actorId "main"，记忆会意外合并。
+
+检查当前 agent ID：
+  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print([a.get('id','(未设置, 默认为 main)') for a in agents] if agents else '未配置 agents（默认为 main）')"
+
+如果未设置唯一 ID 且要加入已有 Memory，询问用户要使用什么 agent ID。
 
 编辑 ~/.openclaw/openclaw.json。必须合并到现有配置中，不要覆盖。
 
@@ -152,21 +179,30 @@ cat >> "$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HO
 | 搜索过往经验 | `agentcore_episodes` | 查找跨会话的模式和反思 |
 | 检查状态 | `agentcore_stats` | 连接状态 + 策略分布（缓存 5 分钟） |
 
-### 作用域（多 Agent）
+### Namespace 架构
 
-**Namespace 层级**：
-- `/global` — 所有 agent 共享，默认可读写。
-- `/agents/<id>` — 每个 agent 的私有空间。Auto-recall 自动搜索此空间。
-- `/projects/<id>` — 项目级共享空间。
-- `/users/<id>` — 用户级空间。
-- `/custom/<id>` — 自定义空间。
+**两类 namespace**：
+
+1. **主 namespace** — 用于手动工具（`agentcore_store`、`agentcore_share`）：
+   - `/global` — 所有 agent 共享，手动 store 的默认目标。
+   - `/agents/<id>` — Agent 专属空间。
+   - `/projects/<id>`、`/users/<id>`、`/custom/<id>` — 作用域空间。
+
+2. **策略 namespace** — 由 AWS 从 `createEvent` 自动提取填充：
+   - `/semantic/<id>` — 事实和知识（跨会话）
+   - `/preferences/<id>` — 用户偏好（跨会话）
+   - `/summary/<id>/<sessionId>` — 每会话摘要（会话级）
+   - `/episodic/<id>/<sessionId>` — 每会话 episode（会话级）
+   - `/episodic/<id>` — Episodic 反思（跨会话）
+
+**Auto-recall 搜索范围**：`/global`、`/agents/<id>`、自身所有策略 namespace、当前会话的 summary/episodic，以及所有授权 agent 的策略 namespace。
 
 **scope 参数语法**：`"global"`, `"agent:sales-bot"`, `"project:ecommerce"`, `"user:kent"`
 
 **跨 Agent 共享**：
 - 写入其他 namespace：`agentcore_share` + target_scopes: ["agent:other-bot"]
 - 读取其他 namespace：`agentcore_recall` / `agentcore_search` + scope: "agent:other-bot"
-- Auto-recall 默认搜索范围：/global + 自己的 /agents/<id> + agentAccess 配置的额外 namespace
+- Auto-recall 自动包含授权 agent：配置下方的 `agentAccess`
 
 **访问控制**（openclaw.json → plugins.entries.memory-agentcore.config.scopes）：
 ```json
@@ -175,7 +211,9 @@ cat >> "$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HO
   "writeAccess": { "bot-a": ["project:shared"] }
 }
 ```
-以上配置下，bot-a 的 auto-recall 搜索范围：/global + /agents/bot-a + /agents/bot-b + /projects/shared。
+以上配置下，bot-a 的 auto-recall 搜索自身所有 namespace + bot-b 的策略 namespace + /projects/shared。
+
+**重要**：共享 Memory ID 时，Agent ID（agents.list[].id）必须唯一。未设置时所有 Agent 默认为 "main"。
 AGENTS_EOF
 
 阶段 4：重启

@@ -5,8 +5,9 @@ import {
   scopeToNamespace,
   resolveAccessibleNamespaces,
   buildEpisodicNamespace,
+  buildSessionNamespaces,
 } from "./scopes.js";
-import { parseAgentIdFromSessionKey } from "./identity.js";
+import { parseAgentIdFromSessionKey, parseSessionIdFromSessionKey } from "./identity.js";
 import { isNoise } from "./noise-filter.js";
 import { shouldRetrieve } from "./adaptive-retrieval.js";
 import { filterByScoreGap } from "./score-filter.js";
@@ -165,6 +166,14 @@ const plugin = {
             config.scopes,
             config.namespaceMode,
           );
+
+          // Add current session's summary/episodic namespaces
+          const sessionId = ctx.sessionId
+            ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
+          if (sessionId) {
+            const sessionNs = buildSessionNamespaces(actorId, sessionId, config.namespaceMode);
+            for (const ns of sessionNs) namespaces.push(ns);
+          }
 
           // Parallel search across all accessible namespaces
           const results = await Promise.allSettled(
@@ -515,7 +524,7 @@ const plugin = {
             }
             const q = query as string;
             const o = opts as { topK: string; actor?: string };
-            const namespace = buildEpisodicNamespace(o.actor);
+            const namespace = buildEpisodicNamespace(o.actor, undefined, config.namespaceMode);
             const records = await client.retrieveMemoryRecords({
               query: q,
               namespace,

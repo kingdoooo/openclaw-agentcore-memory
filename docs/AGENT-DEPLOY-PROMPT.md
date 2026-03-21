@@ -23,15 +23,33 @@ If aws commands fail with AccessDenied or UnrecognizedClientException, STOP and 
 If Node.js is not installed or the installed version is below 18, stop and notify the user that they need to upgrade Node.js. Alternatively, ask if they would like you to handle the installation on their behalf.
 If Git is not installed, stop and notify the user that they need to install Git. Alternatively, ask if they would like you to handle the installation on their behalf.
 
-PHASE 0: CREATE AWS MEMORY RESOURCE
+PHASE 0: CREATE OR JOIN MEMORY RESOURCE
+
+Memory sharing across agents works ONLY within the same Memory ID. Different Memory IDs are fully isolated — there is no cross-Memory-ID sharing.
 
 List existing resources to see what's already there:
   aws bedrock-agentcore-control list-memories --region <REGION>
 
-Create a NEW dedicated Memory resource for this OpenClaw deployment. Do not reuse Memory resources from other projects — different projects may have incompatible strategies and namespaces, and their data would mix together. IMPORTANT:
+ASK THE USER: "Is this a new standalone agent, or should it share memory with existing agents?"
+
+  Option A: Create NEW Memory (standalone or first agent in a group)
+    → Run create-memory command below, then save the resulting Memory ID.
+
+  Option B: Join EXISTING Memory (share with other agents)
+    → Ask user for the existing Memory ID.
+    → Strategy templates are defined at the MEMORY level, not per-agent.
+      All agents sharing a Memory ID use the same strategies automatically.
+    → Skip create-memory, use provided Memory ID directly in Phase 2.
+    → To verify the existing Memory, run:
+      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <REGION>
+    → SKIP to PHASE 1 after confirming the Memory ID.
+
+--- If creating a NEW Memory resource ---
+
+Do not reuse Memory resources from other projects — different projects may have incompatible strategies and namespaces, and their data would mix together. IMPORTANT:
 - CLI service is "bedrock-agentcore-control" (control plane), NOT "bedrock-agentcore"
 - --memory-strategies uses tagged union format, each strategy is a separate JSON argument
-- Summary and episodic namespaces MUST contain {sessionId}
+- Summary and episodic namespaces MUST contain {sessionId} (AWS requirement for session-level strategies)
 - Episodic REQUIRES reflectionConfiguration (reflection namespace must be a prefix of the episodic namespace)
 - Namespace templates support variables: {actorId}, {sessionId}, {memoryStrategyId}
 - Choose ONE of the two options below based on your namespaceMode config
@@ -86,6 +104,15 @@ If npm install fails, check Node.js version (v18+ required) and network connecti
 If npm run build fails, check for TypeScript errors in the output.
 
 PHASE 2: CONFIGURE
+
+IMPORTANT — AGENT ID CHECK (when sharing a Memory ID across agents):
+Each agent sharing a Memory ID MUST have a unique agent ID, set via agents.list[].id in openclaw.json.
+Without a unique ID, all agents default to actorId "main" and their memories merge unintentionally.
+
+Check current agent ID:
+  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print([a.get('id','(no id, defaults to main)') for a in agents] if agents else 'No agents configured (defaults to main)')"
+
+If no unique ID is set and you are joining an existing Memory, ask the user what agent ID to use.
 
 Edit ~/.openclaw/openclaw.json. MERGE into existing config, do not overwrite.
 
@@ -152,21 +179,30 @@ Your memory has two layers:
 | Search past experiences | `agentcore_episodes` | Finds patterns and reflections across sessions |
 | Check status | `agentcore_stats` | Connection health + strategy breakdown (cached 5 min) |
 
-### Scoping (multi-agent)
+### Namespace Architecture
 
-**Namespace hierarchy**:
-- `/global` — All agents share. Default read/write.
-- `/agents/<id>` — Per-agent private space. Auto-recall searches here automatically.
-- `/projects/<id>` — Project-level shared space.
-- `/users/<id>` — Per-user space.
-- `/custom/<id>` — Freeform.
+**Two types of namespaces**:
+
+1. **Primary namespaces** — for manual tool use (`agentcore_store`, `agentcore_share`):
+   - `/global` — All agents share. Default for manual store.
+   - `/agents/<id>` — Per-agent space.
+   - `/projects/<id>`, `/users/<id>`, `/custom/<id>` — Scoped spaces.
+
+2. **Strategy namespaces** — auto-populated by AWS from `createEvent`:
+   - `/semantic/<id>` — Facts and knowledge (cross-session)
+   - `/preferences/<id>` — User preferences (cross-session)
+   - `/summary/<id>/<sessionId>` — Per-session summaries (session-scoped)
+   - `/episodic/<id>/<sessionId>` — Per-session episodes (session-scoped)
+   - `/episodic/<id>` — Episodic reflections (cross-session)
+
+**Auto-recall searches all of**: `/global`, `/agents/<id>`, all strategy namespaces for own agent, current session summary/episodic, plus all authorized agents' strategy namespaces.
 
 **scope parameter syntax**: `"global"`, `"agent:sales-bot"`, `"project:ecommerce"`, `"user:kent"`
 
 **Cross-agent sharing**:
 - Write to other namespace: `agentcore_share` with target_scopes: ["agent:other-bot"]
 - Read from other namespace: `agentcore_recall` / `agentcore_search` with scope: "agent:other-bot"
-- Auto-recall default search: /global + own /agents/<id> + namespaces from agentAccess config
+- Auto-recall includes authorized agents: configure `agentAccess` below
 
 **Access control** (openclaw.json → plugins.entries.memory-agentcore.config.scopes):
 ```json
@@ -175,7 +211,9 @@ Your memory has two layers:
   "writeAccess": { "bot-a": ["project:shared"] }
 }
 ```
-With this config, bot-a's auto-recall searches /global + /agents/bot-a + /agents/bot-b + /projects/shared.
+With this config, bot-a's auto-recall searches all its own namespaces + bot-b's strategy namespaces + /projects/shared.
+
+**Important**: Agent ID (agents.list[].id) must be unique when sharing a Memory ID. All agents default to "main" if not set.
 AGENTS_EOF
 
 PHASE 4: RESTART

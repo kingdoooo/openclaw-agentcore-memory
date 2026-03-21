@@ -285,6 +285,8 @@ Multiple agents can share memory through a single Memory resource using namespac
 
 Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by default. In `per-agent` mode, auto-recall also searches the agent's strategy namespaces (`/semantic/<id>`, `/episodic/<id>`, etc.) which are populated by `createEvent`. Additional cross-agent access configured via `scopes` — authorized agents' strategy namespaces are included automatically. IAM policies provide server-side enforcement.
 
+**Important**: When sharing a Memory ID across agents, each agent **must** have a unique agent ID (`agents.list[].id` in openclaw.json). Without it, all agents default to `main` and their memories merge.
+
 ### Scope Format
 
 | Scope String | AgentCore Namespace |
@@ -294,6 +296,51 @@ Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by defaul
 | `project:ecommerce` | `/projects/ecommerce` |
 | `user:alice` | `/users/alice` |
 | `custom:team-x` | `/custom/team-x` |
+
+### Namespace Architecture
+
+Auto-capture (`createEvent`) writes to strategy namespaces. Auto-recall searches these namespaces automatically.
+
+**Data flow** (per-agent mode, actorId = "bija", sessionId = "s1"):
+
+```
+createEvent(actorId="bija", sessionId="s1")
+  └─ AWS strategies extract and store:
+       SEMANTIC         → /semantic/bija           ← cross-session ✅
+       USER_PREFERENCE  → /preferences/bija        ← cross-session ✅
+       SUMMARY          → /summary/bija/s1         ← session-scoped
+       EPISODIC episodes→ /episodic/bija/s1        ← session-scoped
+       EPISODIC reflect → /episodic/bija           ← cross-session ✅
+
+Auto-recall searches (7 namespaces minimum):
+  /global + /agents/bija                           (primary, for manual store)
+  /semantic/bija + /preferences/bija               (cross-session strategies)
+  /episodic/bija                                   (episodic reflections)
+  /summary/bija/s1 + /episodic/bija/s1             (current session only)
+```
+
+Cross-agent sharing (via `agentAccess`) adds actor-level strategy namespaces for each authorized agent (~5 extra per agent). All searches run in parallel via `Promise.allSettled`.
+
+**Cross-session vs within-session**:
+
+| Memory type | Cross-session? | Within-session? |
+|---|---|---|
+| Semantic facts | ✅ | ✅ |
+| User preferences | ✅ | ✅ |
+| Episodic reflections | ✅ | ✅ |
+| Conversation summaries | — | ✅ |
+| Individual episodes | — | ✅ |
+| Manual store (`/global`) | ✅ | ✅ |
+
+### Multi-Machine Deployment
+
+All machines sharing memory **must**:
+1. Use the **same Memory ID** (created once via AWS CLI)
+2. Have AWS credentials with access to that Memory ID
+3. Configure **unique agent IDs** (do not all use default `main`)
+4. Share the `scopes.agentAccess` config for cross-agent read access
+
+> Memory sharing is **impossible** across different Memory IDs. Each Memory ID is a fully isolated store.
 
 ## Architecture
 

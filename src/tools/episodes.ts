@@ -41,7 +41,7 @@ export function createEpisodesTool(
       const actorId = params.actor_id as string | undefined;
       const topK = (params.top_k as number) ?? 5;
 
-      const namespace = buildEpisodicNamespace(actorId);
+      const namespace = buildEpisodicNamespace(actorId, undefined, config.namespaceMode);
       // Also search the strategy episodic namespace (where createEvent stores records)
       const episodicStrategyNs = actorId
         ? buildStrategyNamespaces(actorId, config.namespaceMode).filter(ns => ns.startsWith("/episodic"))

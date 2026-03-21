@@ -9,3 +9,9 @@ export function parseAgentIdFromSessionKey(sessionKey: string): string {
 
   return "default";
 }
+
+export function parseSessionIdFromSessionKey(sessionKey: string): string | undefined {
+  // "agent:bija:session:abc123" → "abc123"
+  const match = sessionKey.match(/:session:(.+)$/);
+  return match?.[1] || undefined;
+}

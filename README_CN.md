@@ -285,6 +285,8 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 
 每个 Agent 默认读写自己的 namespace（`/agents/<id>`）+ `/global`。在 `per-agent` 模式下，auto-recall 还会搜索该 agent 的策略 namespace（`/semantic/<id>`、`/episodic/<id>` 等，由 `createEvent` 写入）。通过 `scopes` 配置跨 Agent 访问权限——被授权 agent 的策略 namespace 会自动包含。IAM 策略在服务端强制执行。
 
+**重要**：共享 Memory ID 时，每个 Agent **必须**有唯一的 agent ID（openclaw.json 中的 `agents.list[].id`）。未设置时所有 Agent 默认为 `main`，记忆会意外合并。
+
 ### Scope 格式
 
 | Scope 字符串 | AgentCore Namespace |
@@ -294,6 +296,51 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 | `project:ecommerce` | `/projects/ecommerce` |
 | `user:alice` | `/users/alice` |
 | `custom:team-x` | `/custom/team-x` |
+
+### Namespace 架构
+
+Auto-capture（`createEvent`）写入策略 namespace，Auto-recall 自动搜索这些 namespace。
+
+**数据流**（per-agent 模式，actorId = "bija"，sessionId = "s1"）：
+
+```
+createEvent(actorId="bija", sessionId="s1")
+  └─ AWS 策略提取并存储：
+       SEMANTIC         → /semantic/bija           ← 跨会话 ✅
+       USER_PREFERENCE  → /preferences/bija        ← 跨会话 ✅
+       SUMMARY          → /summary/bija/s1         ← 会话级
+       EPISODIC episodes→ /episodic/bija/s1        ← 会话级
+       EPISODIC reflect → /episodic/bija           ← 跨会话 ✅
+
+Auto-recall 搜索（最少 7 个 namespace）：
+  /global + /agents/bija                           （主 namespace，手动 store 用）
+  /semantic/bija + /preferences/bija               （跨会话策略）
+  /episodic/bija                                   （episodic 反思）
+  /summary/bija/s1 + /episodic/bija/s1             （仅当前会话）
+```
+
+跨 Agent 共享（通过 `agentAccess`）会为每个授权 Agent 增加 actor 级策略 namespace（每个 Agent 约增加 5 个）。所有搜索通过 `Promise.allSettled` 并行执行。
+
+**跨会话 vs 会话内**：
+
+| 记忆类型 | 跨会话？ | 会话内？ |
+|---------|---------|---------|
+| 语义事实 | ✅ | ✅ |
+| 用户偏好 | ✅ | ✅ |
+| Episodic 反思 | ✅ | ✅ |
+| 会话摘要 | — | ✅ |
+| 独立 episode | — | ✅ |
+| 手动 store（`/global`） | ✅ | ✅ |
+
+### 多机部署
+
+所有共享记忆的机器**必须**：
+1. 使用**同一个 Memory ID**（通过 AWS CLI 创建一次）
+2. 拥有访问该 Memory ID 的 AWS 凭证
+3. 配置**唯一的 agent ID**（不要都使用默认的 `main`）
+4. 共享 `scopes.agentAccess` 配置以实现跨 Agent 读取
+
+> 不同 Memory ID 之间**无法**共享记忆。每个 Memory ID 是完全隔离的存储空间。
 
 ## 架构
 
