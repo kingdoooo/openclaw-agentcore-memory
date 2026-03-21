@@ -2,3 +2,5 @@ node_modules/
 dist/
 .agentcore-sync.json
 *.tgz
+.DS_Store
+CLAUDE.md
