@@ -42,16 +42,32 @@ export function createEpisodesTool(
       const topK = (params.top_k as number) ?? 5;
 
       const namespace = buildEpisodicNamespace(actorId);
+      // Also search the strategy namespace where createEvent stores episodic records
+      const searchNamespaces = [namespace, "/episodic"];
+      // Deduplicate
+      const uniqueNamespaces = [...new Set(searchNamespaces)];
 
       try {
-        const rawRecords = await client.retrieveMemoryRecords({
-          query,
-          namespace,
-          topK,
-          strategyId: "EPISODIC",
-        });
+        const allResults = await Promise.allSettled(
+          uniqueNamespaces.map((ns) =>
+            client.retrieveMemoryRecords({
+              query,
+              namespace: ns,
+              topK,
+              strategyId: "EPISODIC",
+            }),
+          ),
+        );
 
-        const records = filterByScoreGap(rawRecords, config);
+        const rawRecords = allResults
+          .filter(
+            (r): r is PromiseFulfilledResult<any[]> =>
+              r.status === "fulfilled",
+          )
+          .flatMap((r) => r.value);
+
+        rawRecords.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
+        const records = filterByScoreGap(rawRecords.slice(0, topK), config);
 
         const episodes = records.map((r) => ({
           id: r.memoryRecordId,

@@ -38,6 +38,18 @@ export function scopeToNamespace(scope: Scope): string {
   }
 }
 
+/** Strategy namespace mapping for AgentCore createEvent-produced records */
+export const STRATEGY_NAMESPACES = ["/semantic", "/episodic", "/preferences", "/summary"] as const;
+
+/** Resolve all namespaces to search when querying a scope (includes strategy namespaces for 'global') */
+export function scopeToSearchNamespaces(scope: Scope): string[] {
+  const primary = scopeToNamespace(scope);
+  if (scope.kind === "global") {
+    return [primary, ...STRATEGY_NAMESPACES];
+  }
+  return [primary];
+}
+
 export function scopeToString(scope: Scope): string {
   if (scope.kind === "global") return "global";
   return `${scope.kind}:${scope.id}`;
@@ -50,6 +62,9 @@ export function resolveAccessibleNamespaces(
   const namespaces = ["/global"];
   const agentNs = scopeToNamespace({ kind: "agent", id: actorId });
   namespaces.push(agentNs);
+
+  // Include AgentCore strategy namespaces (populated by createEvent)
+  namespaces.push("/semantic", "/episodic", "/preferences", "/summary");
 
   const accessList = scopesConfig.agentAccess[actorId];
   if (accessList) {

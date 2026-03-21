@@ -130,7 +130,8 @@ const plugin = {
         if (!client || !ready) return;
 
         try {
-          const promptStr = (event.prompt ?? "").trim();
+          const rawPrompt = event.prompt;
+          const promptStr = (typeof rawPrompt === "string" ? rawPrompt : Array.isArray(rawPrompt) ? rawPrompt.filter((p: any) => p?.type === "text").map((p: any) => p.text).join("\n") : String(rawPrompt ?? "")).trim();
           if (!promptStr) return;
 
           // Adaptive retrieval gating
@@ -211,8 +212,21 @@ const plugin = {
 
         void (async () => {
           try {
-            const messages = (event.messages ?? []) as Array<{ role?: string; content?: string }>;
-            if (messages.length === 0) return;
+            // Helper: extract text from content (may be string or [{type,text}] array)
+            const extractText = (content: any): string => {
+              if (typeof content === "string") return content;
+              if (Array.isArray(content)) {
+                return content
+                  .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
+                  .map((part: any) => part.text)
+                  .join("\n");
+              }
+              return typeof content === "object" ? JSON.stringify(content) : String(content ?? "");
+            };
+
+            const messages = (event.messages ?? []) as Array<{ role?: string; content?: any }>;
+            api.logger.debug(`[agentcore] agent_end messages count=${messages.length}`);
+            if (messages.length === 0) { api.logger.debug(`[agentcore] agent_end skipped: no messages`); return; }
 
             // Only capture last user+assistant pair (not full history)
             // AgentCore strategies handle extraction from each event
@@ -221,22 +235,26 @@ const plugin = {
             const lastPair = [lastUser, lastAssistant].filter(Boolean) as typeof messages;
             if (lastPair.length === 0) return;
 
-            // Noise filter
+            // Extract text content for length checks and noise filtering
+            const userText = extractText(lastUser?.content);
+            const assistantText = extractText(lastAssistant?.content);
+
+            // Noise filter (use extracted text)
             const noiseConfig = {
               noisePatterns: config.noisePatterns,
               bypassPatterns: config.bypassPatterns,
             };
             const filtered = config.noiseFilterEnabled
-              ? lastPair.filter((m) => !isNoise(m.content ?? "", noiseConfig))
+              ? lastPair.filter((m) => !isNoise(extractText(m.content), noiseConfig))
               : lastPair;
 
-            // Min length check
-            const userLen = lastUser?.content?.length ?? 0;
-            const totalLen = lastPair.reduce(
-              (sum, m) => sum + (m.content?.length ?? 0),
-              0,
-            );
-            if (userLen < 20 || totalLen < config.autoCaptureMinLength) return;
+            // Min length check (use extracted text lengths)
+            const userLen = userText.length;
+            const totalLen = userText.length + assistantText.length;
+            if (userLen < 20 || totalLen < config.autoCaptureMinLength) {
+              api.logger.debug(`[agentcore] agent_end skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
+              return;
+            }
 
             const actorId = ctx.sessionKey
               ? parseAgentIdFromSessionKey(ctx.sessionKey)
@@ -249,15 +267,12 @@ const plugin = {
               sessionId,
               messages: filtered.map((m: any) => ({
                 role: m.role ?? "user",
-                text:
-                  typeof m.content === "string"
-                    ? m.content
-                    : JSON.stringify(m.content),
+                text: extractText(m.content),
               })),
             });
 
-            api.logger.debug(
-              `[agentcore] Auto-captured ${filtered.length} messages`,
+            api.logger.info(
+              `[agentcore] Auto-captured ${filtered.length} messages (actorId=${actorId}, sessionId=${sessionId})`,
             );
 
             // File sync

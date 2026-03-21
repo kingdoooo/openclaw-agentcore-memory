@@ -1,6 +1,6 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import { parseScope, scopeToSearchNamespaces } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createRecallTool(
@@ -49,19 +49,31 @@ export function createRecallTool(
       const strategy = params.strategy as string | undefined;
 
       const scope = parseScope(scopeStr);
-      const namespace = scopeToNamespace(scope);
+      const namespaces = scopeToSearchNamespaces(scope);
 
       try {
-        const rawRecords = await client.retrieveMemoryRecords({
-          query,
-          namespace,
-          topK: limit,
-          ...(strategy ? { strategyId: strategy } : {}),
-        });
+        const allResults = await Promise.allSettled(
+          namespaces.map((ns) =>
+            client.retrieveMemoryRecords({
+              query,
+              namespace: ns,
+              topK: limit,
+              ...(strategy ? { strategyId: strategy } : {}),
+            }),
+          ),
+        );
 
-        const records = filterByScoreGap(rawRecords, config);
+        const rawRecords = allResults
+          .filter(
+            (r): r is PromiseFulfilledResult<typeof rawRecords extends never ? never : any[]> =>
+              r.status === "fulfilled",
+          )
+          .flatMap((r) => r.value);
 
-        const results = records.map((r) => ({
+        rawRecords.sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
+        const topRecords = filterByScoreGap(rawRecords.slice(0, limit), config);
+
+        const results = topRecords.map((r: any) => ({
           id: r.memoryRecordId,
           content: r.content,
           ...(config.showScores && r.score != null

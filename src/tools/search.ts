@@ -1,5 +1,5 @@
 import type { AgentCoreClient } from "../client.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import { parseScope, scopeToNamespace, scopeToSearchNamespaces } from "../scopes.js";
 
 export function createSearchTool(client: AgentCoreClient) {
   return {
@@ -36,27 +36,38 @@ export function createSearchTool(client: AgentCoreClient) {
       const maxResults = (params.max_results as number) ?? 20;
       const nextToken = params.next_token as string | undefined;
 
-      const namespace = scopeToNamespace(parseScope(scopeStr));
+      const scope = parseScope(scopeStr);
+      const namespaces = scopeToSearchNamespaces(scope);
 
       try {
-        const result = await client.listMemoryRecords({
-          namespace,
-          strategyId: strategy,
-          maxResults,
-          nextToken,
-        });
+        const allResults = await Promise.allSettled(
+          namespaces.map((ns) =>
+            client.listMemoryRecords({
+              namespace: ns,
+              strategyId: strategy,
+              maxResults,
+              nextToken,
+            }),
+          ),
+        );
+
+        const allRecords = allResults
+          .filter(
+            (r): r is PromiseFulfilledResult<{ records: any[]; nextToken?: string }> =>
+              r.status === "fulfilled",
+          )
+          .flatMap((r) => r.value.records);
 
         const data = {
-          records: result.records.map((r) => ({
+          records: allRecords.map((r: any) => ({
             id: r.memoryRecordId,
             content: r.content.slice(0, 300),
             strategy: r.memoryStrategyId,
             date: r.createdAt.toISOString().split("T")[0],
             ...(r.metadata ? { metadata: r.metadata } : {}),
           })),
-          count: result.records.length,
-          hasMore: !!result.nextToken,
-          nextToken: result.nextToken,
+          count: allRecords.length,
+          hasMore: false,
         };
         return {
           content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
