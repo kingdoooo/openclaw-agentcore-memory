@@ -642,16 +642,15 @@ const plugin = {
         prog
           .command("agentcore-sync")
           .description("Manually trigger file sync")
-          .action(async () => {
+          .option("-a, --actor <id>", "Actor ID (default: default)", "default")
+          .action(async (opts: unknown) => {
             if (!fileSync) {
               console.log("File sync is disabled.");
               return;
             }
-            const count = await fileSync.syncAll(
-              "cli-sync",
-              "cli",
-            );
-            console.log(`Synced ${count} files.`);
+            const o = opts as { actor: string };
+            const count = await fileSync.syncAll(o.actor);
+            console.log(`Synced ${count} files to /agents/${o.actor}.`);
           });
 
         prog
