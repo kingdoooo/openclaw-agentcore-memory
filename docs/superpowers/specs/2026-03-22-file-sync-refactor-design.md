@@ -16,9 +16,9 @@ Replace `createEvent` with `batchCreateRecords` (create) and `batchUpdateRecords
 
 ### Namespace
 
-Write to `/agents/{actorId}` — the same namespace used by `agentcore_store`. Distinguish file-synced records via `metadata.source: "file-sync"` and `metadata.file: "<filename>"`.
+Write to `/agents/{actorId}` — the same namespace used by `agentcore_store`. No sub-namespace (`/docs`). Auto-recall already searches `/agents/{actorId}`, so records are immediately retrievable.
 
-No sub-namespace (`/docs`). Auto-recall already searches `/agents/{actorId}`, so records are immediately retrievable.
+Note: AWS `BatchCreateMemoryRecords` silently ignores custom `metadata` fields — only system metadata (`x-amz-agentcore-memory-recordType`) is preserved. File-synced records cannot be distinguished from other records by metadata. Record tracking relies entirely on local `.agentcore-sync.json` state.
 
 ### Sync State
 
@@ -36,7 +36,7 @@ Each file maps to one recordId (no chunking — whole file as single record).
 
 1. Resolve file list from `fileSyncPaths`
 2. For each file in list (one at a time, not batched — typical count is 3-5 files):
-   - **Exists + hash changed + has recordId** → `batchUpdateRecords` (content only, no namespaces, no metadata — preserves originals)
+   - **Exists + hash changed + has recordId** → `batchUpdateRecords` (content only, no namespaces)
    - **Exists + hash changed + no recordId** (new file or state lost) → `batchCreateRecords`, store returned recordId in state
    - **Exists + hash same** → skip
 3. For each file in state but not on disk → `batchDeleteRecords`, remove from state
@@ -44,7 +44,7 @@ Each file maps to one recordId (no chunking — whole file as single record).
 
 Files are created/updated one at a time to avoid recordId-to-file correlation issues in batch responses. With 3-5 files per sync this has negligible performance impact.
 
-Metadata (`source`, `file`) is immutable after creation — set once in `batchCreateRecords`, never updated. `batchUpdateRecords` only changes `content`. This avoids needing to extend the client API.
+No custom metadata is written — AWS `BatchCreateMemoryRecords` silently ignores the `metadata` field. `batchCreateRecords` in `client.ts` still passes metadata for other callers (e.g. store tool), but file sync does not rely on it.
 
 Note: cleanup of deleted files only runs on next `agent_end` trigger (or CLI `agentcore-sync`). If a file is deleted but no conversation happens, the stale record persists until the next agent interaction.
 
