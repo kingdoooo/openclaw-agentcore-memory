@@ -35,14 +35,18 @@ Each file maps to one recordId (no chunking — whole file as single record).
 ### Sync Logic (`syncAll(actorId)`)
 
 1. Resolve file list from `fileSyncPaths`
-2. For each file in list:
-   - **Exists + hash changed + has recordId** → `batchUpdateRecords` (without namespaces param, preserves original)
-   - **Exists + hash changed + no recordId** (new file or state lost) → `batchCreateRecords`
+2. For each file in list (one at a time, not batched — typical count is 3-5 files):
+   - **Exists + hash changed + has recordId** → `batchUpdateRecords` (content only, no namespaces, no metadata — preserves originals)
+   - **Exists + hash changed + no recordId** (new file or state lost) → `batchCreateRecords`, store returned recordId in state
    - **Exists + hash same** → skip
 3. For each file in state but not on disk → `batchDeleteRecords`, remove from state
 4. Save updated state
 
-Note: cleanup of deleted files only runs on next `agent_end` trigger. If a file is deleted but no conversation happens, the stale record persists until the next agent interaction.
+Files are created/updated one at a time to avoid recordId-to-file correlation issues in batch responses. With 3-5 files per sync this has negligible performance impact.
+
+Metadata (`source`, `file`) is immutable after creation — set once in `batchCreateRecords`, never updated. `batchUpdateRecords` only changes `content`. This avoids needing to extend the client API.
+
+Note: cleanup of deleted files only runs on next `agent_end` trigger (or CLI `agentcore-sync`). If a file is deleted but no conversation happens, the stale record persists until the next agent interaction.
 
 ### State Loss Fallback
 
@@ -64,11 +68,13 @@ File sync runs first, independent of capture. Only requires `actorId` (from `ctx
 
 ### CLI
 
-`agentcore-sync` command calls `fileSync.syncAll(actorId)`. Signature drops `sessionId` parameter. Same code path as the hook.
+`agentcore-sync` command calls `fileSync.syncAll(actorId)`. Signature drops `sessionId` parameter. Same code path as the hook, including deletion cleanup for files removed from disk.
+
+The CLI resolves `actorId` from `--actor <id>` option, defaulting to `"default"`.
 
 ### No Chunking
 
-`CHUNK_SIZE` constant and `chunkContent()` method are removed. Each file is stored as a single record regardless of size.
+`CHUNK_SIZE` constant and `chunkContent()` method are removed. Each file is stored as a single record. If a file exceeds 25KB, log a warning and skip it — this guards against unexpected API payload limits while covering all typical MEMORY.md/USER.md files.
 
 ## Files Changed
 
