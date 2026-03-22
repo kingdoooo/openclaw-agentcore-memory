@@ -204,6 +204,10 @@ const plugin = {
                 namespacesWithResults++;
                 const scores = r.value.map((v) => (v.score ?? 0).toFixed(3)).join(", ");
                 api.logger.debug(`[agentcore] [recall] ns=${ns}: ${count} results (scores: ${scores})`);
+                for (const v of r.value) {
+                  const preview = v.content.replace(/\n/g, " ").slice(0, 120);
+                  api.logger.debug(`[agentcore] [recall]   [${(v.score ?? 0).toFixed(3)}] strategy=${v.memoryStrategyId} ns=[${v.namespaces.join(",")}] → ${preview}...`);
+                }
               } else {
                 api.logger.debug(`[agentcore] [recall] ns=${ns}: 0 results`);
               }
@@ -320,6 +324,10 @@ const plugin = {
             api.logger.debug(
               `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
             );
+            for (const m of filtered) {
+              const txt = extractText(m.content).replace(/\n/g, " ").slice(0, 150);
+              api.logger.debug(`[agentcore] [capture]   ${m.role}: ${txt}...`);
+            }
 
             await client!.createEvent({
               actorId,
