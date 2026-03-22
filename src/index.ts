@@ -318,8 +318,11 @@ const plugin = {
               : "default";
             const sessionId =
               ctx.sessionId
-              ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined)
-              ?? `session-${Date.now()}`;
+              ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
+            if (!sessionId) {
+              api.logger.debug(`[agentcore] [capture] skipped: no sessionId available`);
+              return;
+            }
 
             api.logger.debug(
               `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
