@@ -34,6 +34,10 @@ function extractText(content: any): string {
   return typeof content === "object" ? JSON.stringify(content) : String(content ?? "");
 }
 
+/** Strip injected agentcore_memory XML to avoid self-referential memory loops */
+const stripAgentcoreMemory = (text: string): string =>
+  text.replace(/<agentcore_memory>[\s\S]*?<\/agentcore_memory>/g, "").trim();
+
 const NOT_READY_RESPONSE = {
   content: [
     {
@@ -301,15 +305,15 @@ const plugin = {
           const lastPair = [lastUser, lastAssistant].filter(Boolean) as typeof messages;
           if (lastPair.length === 0) return;
 
-          const userText = extractText(lastUser?.content);
-          const assistantText = extractText(lastAssistant?.content);
+          const userText = stripAgentcoreMemory(extractText(lastUser?.content));
+          const assistantText = stripAgentcoreMemory(extractText(lastAssistant?.content));
 
           const noiseConfig = {
             noisePatterns: config.noisePatterns,
             bypassPatterns: config.bypassPatterns,
           };
           const filtered = config.noiseFilterEnabled
-            ? lastPair.filter((m) => !isNoise(extractText(m.content), noiseConfig))
+            ? lastPair.filter((m) => !isNoise(stripAgentcoreMemory(extractText(m.content)), noiseConfig))
             : lastPair;
 
           if (filtered.length < lastPair.length) {
@@ -318,7 +322,7 @@ const plugin = {
 
           const userLen = userText.length;
           const totalLen = userText.length + assistantText.length;
-          if (userLen < 20 || totalLen < config.autoCaptureMinLength) {
+          if (totalLen < config.autoCaptureMinLength) {
             api.logger.debug(`[agentcore] [capture] skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
             return;
           }
@@ -335,7 +339,7 @@ const plugin = {
             `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
           );
           for (const m of filtered) {
-            const txt = extractText(m.content).replace(/\n/g, " ").slice(0, 150);
+            const txt = stripAgentcoreMemory(extractText(m.content)).replace(/\n/g, " ").slice(0, 150);
             api.logger.debug(`[agentcore] [capture]   ${m.role}: ${txt}...`);
           }
 
@@ -344,7 +348,7 @@ const plugin = {
             sessionId,
             messages: filtered.map((m: any) => ({
               role: m.role ?? "user",
-              text: extractText(m.content),
+              text: stripAgentcoreMemory(extractText(m.content)),
             })),
           });
 

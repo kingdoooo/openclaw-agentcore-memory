@@ -45,7 +45,7 @@ const DEFAULTS: PluginConfig = {
   strategies: ["SEMANTIC", "USER_PREFERENCE", "EPISODIC", "SUMMARY"],
   autoRecallTopK: 5,
   autoCaptureEnabled: true,
-  autoCaptureMinLength: 30,
+  autoCaptureMinLength: 80,
   noiseFilterEnabled: true,
   adaptiveRetrievalEnabled: true,
   namespaceMode: "per-agent",
