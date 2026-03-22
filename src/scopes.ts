@@ -39,7 +39,7 @@ export function scopeToNamespace(scope: Scope): string {
 }
 
 /** Strategy base names matching AgentCore built-in strategies */
-const STRATEGY_BASES = ["semantic", "episodic", "preferences", "summary"] as const;
+const STRATEGY_BASES = ["semantic", "episodic", "preferences"] as const;
 
 /** Build strategy namespace paths based on namespaceMode.
  *  - "shared": flat paths like /semantic
@@ -136,10 +136,10 @@ export function buildEpisodicNamespace(
   return "/episodic";
 }
 
-/** Session-scoped strategy namespaces (summary + episodic).
- *  These match AWS templates that require {sessionId}.
+/** Session-scoped strategy namespaces that need a separate search.
+ *  Only summary — episodic is already prefix-covered by the actor-level /episodic/{actorId}.
  */
-const SESSION_SCOPED_STRATEGIES = ["summary", "episodic"] as const;
+const SESSION_SCOPED_STRATEGIES = ["summary"] as const;
 
 export function buildSessionNamespaces(
   actorId: string,

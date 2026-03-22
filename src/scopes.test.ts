@@ -49,11 +49,11 @@ describe("scopeToNamespace", () => {
 describe("buildStrategyNamespaces", () => {
   it("per-agent mode", () => {
     const ns = buildStrategyNamespaces("bija", "per-agent");
-    assert.deepEqual(ns, ["/semantic/bija", "/episodic/bija", "/preferences/bija", "/summary/bija"]);
+    assert.deepEqual(ns, ["/semantic/bija", "/episodic/bija", "/preferences/bija"]);
   });
   it("shared mode", () => {
     const ns = buildStrategyNamespaces("bija", "shared");
-    assert.deepEqual(ns, ["/semantic", "/episodic", "/preferences", "/summary"]);
+    assert.deepEqual(ns, ["/semantic", "/episodic", "/preferences"]);
   });
 });
 
@@ -85,19 +85,19 @@ describe("buildSessionNamespaces", () => {
   it("per-agent mode", () => {
     assert.deepEqual(
       buildSessionNamespaces("bija", "s1", "per-agent"),
-      ["/summary/bija/s1", "/episodic/bija/s1"],
+      ["/summary/bija/s1"],
     );
   });
   it("shared mode", () => {
     assert.deepEqual(
       buildSessionNamespaces("bija", "s1", "shared"),
-      ["/summary/s1", "/episodic/s1"],
+      ["/summary/s1"],
     );
   });
   it("sanitizes special chars", () => {
     assert.deepEqual(
       buildSessionNamespaces("bot/a", "s:1", "per-agent"),
-      ["/summary/bot_a/s_1", "/episodic/bot_a/s_1"],
+      ["/summary/bot_a/s_1"],
     );
   });
 });
@@ -112,7 +112,7 @@ describe("scopeToSearchNamespaces", () => {
     assert.ok(ns.includes("/semantic/bija"));
     assert.ok(ns.includes("/episodic/bija"));
     assert.ok(ns.includes("/preferences/bija"));
-    assert.ok(ns.includes("/summary/bija"));
+    assert.ok(!ns.includes("/summary/bija"), "summary is session-scoped only, no actor-level namespace");
   });
   it("project scope does not expand", () => {
     assert.deepEqual(
@@ -131,12 +131,12 @@ describe("resolveAccessibleNamespaces", () => {
     assert.ok(ns.includes("/agents/bija"));
   });
 
-  it("includes strategy namespaces in per-agent mode", () => {
+  it("includes actor-level strategy namespaces in per-agent mode", () => {
     const ns = resolveAccessibleNamespaces("bija", emptyCfg, "per-agent");
     assert.ok(ns.includes("/semantic/bija"));
     assert.ok(ns.includes("/episodic/bija"));
     assert.ok(ns.includes("/preferences/bija"));
-    assert.ok(ns.includes("/summary/bija"));
+    assert.ok(!ns.includes("/summary/bija"), "summary is session-scoped only");
   });
 
   it("shared mode uses flat strategy paths", () => {
@@ -152,7 +152,7 @@ describe("resolveAccessibleNamespaces", () => {
     assert.ok(ns.includes("/semantic/sales"));
     assert.ok(ns.includes("/episodic/sales"));
     assert.ok(ns.includes("/preferences/sales"));
-    assert.ok(ns.includes("/summary/sales"));
+    assert.ok(!ns.includes("/summary/sales"), "summary is session-scoped only");
   });
 
   it("deduplicates namespaces", () => {
@@ -160,5 +160,16 @@ describe("resolveAccessibleNamespaces", () => {
     const ns = resolveAccessibleNamespaces("bija", cfg, "per-agent");
     const dupes = ns.filter((v, i) => ns.indexOf(v) !== i);
     assert.equal(dupes.length, 0);
+  });
+
+  it("combined with buildSessionNamespaces produces exactly 6 namespaces", () => {
+    const ns = resolveAccessibleNamespaces("bija", emptyCfg, "per-agent");
+    const sessionNs = buildSessionNamespaces("bija", "s1", "per-agent");
+    const combined = [...new Set([...ns, ...sessionNs])];
+    assert.equal(combined.length, 6);
+    assert.deepEqual(combined.sort(), [
+      "/agents/bija", "/episodic/bija", "/global",
+      "/preferences/bija", "/semantic/bija", "/summary/bija/s1",
+    ]);
   });
 });
