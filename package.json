@@ -4,11 +4,14 @@
   "type": "module",
   "main": "src/index.ts",
   "openclaw": {
-    "extensions": ["src/index.ts"]
+    "extensions": [
+      "src/index.ts"
+    ]
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npx tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "^3.1004.0",
