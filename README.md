@@ -30,7 +30,7 @@ This plugin **coexists** with memory-core — local memory still works offline, 
 - **Episodic memory**: agents learn from past experiences with cross-episode reflections
 - **Auto-recall**: inject relevant memories before each agent turn
 - **Auto-capture**: automatically capture conversations after each agent run
-- **File sync**: sync MEMORY.md/USER.md/SOUL.md/TOOLS.md/memory/*.md to AgentCore
+- **File sync**: sync local documents to AgentCore for semantic search (default empty — bootstrap files already in prompt)
 - **On-demand memory deletion** via `agentcore_forget`
 - **Bilingual noise filter** (EN/ZH) and adaptive retrieval gating
 
@@ -150,8 +150,8 @@ openclaw agentcore-status
 | `namespaceMode` | `per-agent` | Strategy namespace isolation: `per-agent` = `/semantic/{actorId}`, `shared` = flat `/semantic` |
 | `eventExpiryDays` | `90` | Short-term event retention |
 | `showScores` | `false` | Include similarity scores in recalled memories |
-| `fileSyncEnabled` | `true` | Auto-sync workspace files to AgentCore |
-| `fileSyncPaths` | `["MEMORY.md","USER.md","SOUL.md","TOOLS.md","memory/*.md"]` | Files to sync |
+| `fileSyncEnabled` | `true` | Enable file sync to AgentCore |
+| `fileSyncPaths` | `[]` | Files to sync (glob supported). Default empty — bootstrap files are already in prompt |
 | `maxRetries` | `3` | AWS SDK retry attempts |
 | `timeoutMs` | `10000` | Per-request timeout |
 

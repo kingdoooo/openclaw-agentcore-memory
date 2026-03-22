@@ -30,7 +30,7 @@ OpenClaw 内置的 memory-core 将记忆存储为本地 Markdown 文件，每个
 - **情景记忆**：Agent 从历史交互中学习，跨情景反思提炼洞察
 - **自动召回**：每轮对话前自动注入相关记忆
 - **自动捕获**：每轮对话后自动捕获对话内容
-- **文件同步**：自动同步 MEMORY.md/USER.md/SOUL.md/TOOLS.md/memory/*.md 到 AgentCore
+- **文件同步**：将本地文档同步到 AgentCore 用于语义搜索（默认为空 — 引导文件已在 Prompt 中）
 - **按需删除记忆**：通过 `agentcore_forget` 工具
 - **双语噪声过滤**（中/英）和自适应检索
 
@@ -150,8 +150,8 @@ openclaw agentcore-status
 | `namespaceMode` | `per-agent` | 策略 namespace 隔离模式：`per-agent` = `/semantic/{actorId}`，`shared` = 扁平 `/semantic` |
 | `eventExpiryDays` | `90` | 短期事件保留天数 |
 | `showScores` | `false` | 召回时显示相似度分数 |
-| `fileSyncEnabled` | `true` | 自动同步工作区文件 |
-| `fileSyncPaths` | `["MEMORY.md","USER.md","SOUL.md","TOOLS.md","memory/*.md"]` | 同步的文件 |
+| `fileSyncEnabled` | `true` | 启用文件同步到 AgentCore |
+| `fileSyncPaths` | `[]` | 同步的文件（支持 glob）。默认为空 — 引导文件已在 Prompt 中 |
 | `maxRetries` | `3` | AWS SDK 重试次数 |
 | `timeoutMs` | `10000` | 单次请求超时（ms） |
 
