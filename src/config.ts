@@ -59,7 +59,10 @@ const DEFAULTS: PluginConfig = {
   bypassPatterns: [],
   statsCacheTtlMs: 5 * 60 * 1000,
   fileSyncEnabled: true,
-  fileSyncPaths: ["MEMORY.md", "USER.md", "SOUL.md", "TOOLS.md", "memory/*.md"],
+  // Default empty — OpenClaw already injects bootstrap files (SOUL.md, USER.md, etc.)
+  // into the prompt. Sync is only useful for files NOT in the Project Context.
+  // Example: fileSyncPaths: ["docs/api-reference.md", "projects/*/context.md"]
+  fileSyncPaths: [],
   maxRetries: 3,
   timeoutMs: 10000,
 };

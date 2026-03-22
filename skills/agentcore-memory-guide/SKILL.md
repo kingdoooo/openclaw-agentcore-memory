@@ -125,7 +125,8 @@ All settings have defaults. Configure in `openclaw.json` under `plugins.entries.
 | `noisePatterns` | `[]` | `AGENTCORE_NOISE_PATTERNS` | Custom noise regex (comma-separated in env) |
 | `bypassPatterns` | `[]` | `AGENTCORE_BYPASS_PATTERNS` | Custom bypass regex (comma-separated in env) |
 | `statsCacheTtlMs` | `300000` | `AGENTCORE_STATS_CACHE_TTL_MS` | Stats cache TTL (5 min) |
-| `fileSyncEnabled` | `true` | `AGENTCORE_FILE_SYNC_ENABLED` | Sync MEMORY.md/USER.md to AgentCore |
+| `fileSyncEnabled` | `true` | `AGENTCORE_FILE_SYNC_ENABLED` | Enable file sync to AgentCore |
+| `fileSyncPaths` | `[]` | `AGENTCORE_FILE_SYNC_PATHS` | Files to sync (glob supported). Default empty — bootstrap files are already in prompt |
 | `eventExpiryDays` | `90` | `AGENTCORE_EVENT_EXPIRY_DAYS` | Short-term event retention |
 | `maxRetries` | `3` | `AGENTCORE_MAX_RETRIES` | AWS SDK retry attempts |
 | `timeoutMs` | `10000` | `AGENTCORE_TIMEOUT_MS` | Per-request timeout |
@@ -149,6 +150,43 @@ All settings have defaults. Configure in `openclaw.json` under `plugins.entries.
 }
 ```
 Bypass patterns take priority over noise patterns. Both are evaluated before built-in EN/ZH filters.
+
+## File Sync
+
+Sync local documents as semantic memory records to `/agents/{actorId}`, searchable by auto-recall.
+
+### When to Use
+
+OpenClaw already injects bootstrap files (SOUL.md, USER.md, TOOLS.md, AGENTS.md, IDENTITY.md, MEMORY.md, HEARTBEAT.md) into the prompt every turn. **Do not sync these files** — it creates redundant results.
+
+File sync is for documents **not in the prompt** but needed for auto-recall semantic search:
+- Knowledge documents (e.g., `docs/api-reference.md`)
+- Project context files (e.g., `projects/*/context.md`)
+- Custom reference material
+
+### Configuration
+
+`fileSyncPaths` defaults to `[]`. Set it to sync specific files:
+
+```json
+{
+  "fileSyncPaths": ["docs/api-reference.md", "projects/*/context.md"]
+}
+```
+
+- Supports glob wildcards (`*.md`)
+- Each file is stored as a single record (no chunking)
+- Files exceeding 25KB are skipped with a warning
+- Synced records are tracked in `.agentcore-sync.json` (hash + recordId)
+- When a file is deleted from disk, its record is automatically removed on next sync
+
+### CLI
+
+```bash
+openclaw agentcore-sync --actor <id>
+```
+
+Manually trigger sync. Same logic as the automatic `agent_end` hook.
 
 ## Runtime Troubleshooting
 
