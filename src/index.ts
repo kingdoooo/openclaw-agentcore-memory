@@ -263,106 +263,102 @@ const plugin = {
       });
     }
 
-    // --- Hook: Auto-Capture (agent_end) - fire-and-forget ---
-    if (config.autoCaptureEnabled) {
-      api.on("agent_end", async (event: any, ctx: any) => {
-        if (!client || !ready) {
-          api.logger.debug(`[agentcore] [capture] skipped: reason="not ready" (client=${!!client}, ready=${ready})`);
-          return;
-        }
-        if (!event.success) {
-          api.logger.debug(`[agentcore] [capture] skipped: reason="event not successful"`);
-          return;
-        }
+    // --- Hook: agent_end (file sync + auto-capture) - fire-and-forget ---
+    api.on("agent_end", async (event: any, ctx: any) => {
+      if (!client || !ready) {
+        api.logger.debug(`[agentcore] [agent_end] skipped: reason="not ready" (client=${!!client}, ready=${ready})`);
+        return;
+      }
+      if (!event.success) {
+        api.logger.debug(`[agentcore] [agent_end] skipped: reason="event not successful"`);
+        return;
+      }
 
-        void (async () => {
-          try {
-            const captureStart = Date.now();
-            const messages = (event.messages ?? []) as Array<{ role?: string; content?: any }>;
-            if (messages.length === 0) { api.logger.debug(`[agentcore] [capture] skipped: reason="no messages"`); return; }
+      const actorId = ctx.sessionKey
+        ? parseAgentIdFromSessionKey(ctx.sessionKey)
+        : "default";
 
-            // Only capture last user+assistant pair (not full history)
-            // AgentCore strategies handle extraction from each event
-            const lastUser = [...messages].reverse().find((m) => m.role === "user");
-            const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-            const lastPair = [lastUser, lastAssistant].filter(Boolean) as typeof messages;
-            if (lastPair.length === 0) return;
-
-            // Extract text content for length checks and noise filtering
-            const userText = extractText(lastUser?.content);
-            const assistantText = extractText(lastAssistant?.content);
-
-            // Noise filter (use extracted text)
-            const noiseConfig = {
-              noisePatterns: config.noisePatterns,
-              bypassPatterns: config.bypassPatterns,
-            };
-            const filtered = config.noiseFilterEnabled
-              ? lastPair.filter((m) => !isNoise(extractText(m.content), noiseConfig))
-              : lastPair;
-
-            if (filtered.length < lastPair.length) {
-              api.logger.debug(`[agentcore] [capture] noise-filtered: ${lastPair.length} → ${filtered.length} messages`);
-            }
-
-            // Min length check (use extracted text lengths)
-            const userLen = userText.length;
-            const totalLen = userText.length + assistantText.length;
-            if (userLen < 20 || totalLen < config.autoCaptureMinLength) {
-              api.logger.debug(`[agentcore] [capture] skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
-              return;
-            }
-
-            const actorId = ctx.sessionKey
-              ? parseAgentIdFromSessionKey(ctx.sessionKey)
-              : "default";
-            const sessionId =
-              ctx.sessionId
-              ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
-            if (!sessionId) {
-              api.logger.debug(`[agentcore] [capture] skipped: no sessionId available`);
-              return;
-            }
-
-            api.logger.debug(
-              `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
-            );
-            for (const m of filtered) {
-              const txt = extractText(m.content).replace(/\n/g, " ").slice(0, 150);
-              api.logger.debug(`[agentcore] [capture]   ${m.role}: ${txt}...`);
-            }
-
-            await client!.createEvent({
-              actorId,
-              sessionId,
-              messages: filtered.map((m: any) => ({
-                role: m.role ?? "user",
-                text: extractText(m.content),
-              })),
-            });
-
-            api.logger.info(
-              `[agentcore] [capture] done: captured ${filtered.length} messages (actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, userLen=${userLen}, assistantLen=${assistantText.length}), latencyMs=${Date.now() - captureStart}`,
-            );
-
-            // File sync
-            if (fileSync) {
-              const synced = await fileSync.syncAll(
-                sessionId,
-                actorId,
-              );
-              if (synced > 0) {
-                api.logger.debug(
-                  `[agentcore] [capture] file-synced: ${synced} files`,
-                );
-              }
-            }
-          } catch (err) {
-            api.logger.warn(`[agentcore] [capture] error: ${err}`);
+      // 1. File sync (independent, only needs actorId)
+      if (fileSync) {
+        try {
+          const synced = await fileSync.syncAll(actorId);
+          if (synced > 0) {
+            api.logger.debug(`[agentcore] [file-sync] synced: ${synced} files (actorId=${actorId})`);
           }
-        })();
-      });
-    }
+        } catch (err) {
+          api.logger.warn(`[agentcore] [file-sync] error: ${err}`);
+        }
+      }
+
+      // 2. Auto-capture (needs sessionId, may skip independently)
+      if (!config.autoCaptureEnabled) return;
+
+      void (async () => {
+        try {
+          const captureStart = Date.now();
+          const messages = (event.messages ?? []) as Array<{ role?: string; content?: any }>;
+          if (messages.length === 0) { api.logger.debug(`[agentcore] [capture] skipped: reason="no messages"`); return; }
+
+          const lastUser = [...messages].reverse().find((m) => m.role === "user");
+          const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+          const lastPair = [lastUser, lastAssistant].filter(Boolean) as typeof messages;
+          if (lastPair.length === 0) return;
+
+          const userText = extractText(lastUser?.content);
+          const assistantText = extractText(lastAssistant?.content);
+
+          const noiseConfig = {
+            noisePatterns: config.noisePatterns,
+            bypassPatterns: config.bypassPatterns,
+          };
+          const filtered = config.noiseFilterEnabled
+            ? lastPair.filter((m) => !isNoise(extractText(m.content), noiseConfig))
+            : lastPair;
+
+          if (filtered.length < lastPair.length) {
+            api.logger.debug(`[agentcore] [capture] noise-filtered: ${lastPair.length} → ${filtered.length} messages`);
+          }
+
+          const userLen = userText.length;
+          const totalLen = userText.length + assistantText.length;
+          if (userLen < 20 || totalLen < config.autoCaptureMinLength) {
+            api.logger.debug(`[agentcore] [capture] skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
+            return;
+          }
+
+          const sessionId =
+            ctx.sessionId
+            ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
+          if (!sessionId) {
+            api.logger.debug(`[agentcore] [capture] skipped: no sessionId available`);
+            return;
+          }
+
+          api.logger.debug(
+            `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
+          );
+          for (const m of filtered) {
+            const txt = extractText(m.content).replace(/\n/g, " ").slice(0, 150);
+            api.logger.debug(`[agentcore] [capture]   ${m.role}: ${txt}...`);
+          }
+
+          await client!.createEvent({
+            actorId,
+            sessionId,
+            messages: filtered.map((m: any) => ({
+              role: m.role ?? "user",
+              text: extractText(m.content),
+            })),
+          });
+
+          api.logger.info(
+            `[agentcore] [capture] done: captured ${filtered.length} messages (actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, userLen=${userLen}, assistantLen=${assistantText.length}), latencyMs=${Date.now() - captureStart}`,
+          );
+        } catch (err) {
+          api.logger.warn(`[agentcore] [capture] error: ${err}`);
+        }
+      })();
+    });
 
     // --- CLI commands ---
     api.registerCli(
@@ -413,7 +409,7 @@ const plugin = {
             if (fileSync) {
               const state = fileSync.getState();
               console.log(
-                `  Synced files: ${Object.keys(state.hashes).length}`,
+                `  Synced files: ${Object.keys(state.files).length}`,
               );
               if (state.lastSyncAt) {
                 console.log(`  Last sync: ${state.lastSyncAt}`);
