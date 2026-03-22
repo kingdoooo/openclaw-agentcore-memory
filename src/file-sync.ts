@@ -15,6 +15,12 @@ interface SyncState {
   lastSyncAt?: string;
 }
 
+export interface SyncResult {
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
 interface Logger {
   info: (msg: string) => void;
   warn: (msg: string) => void;
@@ -73,12 +79,12 @@ export class FileSync {
     return createHash("sha256").update(content).digest("hex").slice(0, 16);
   }
 
-  async syncAll(actorId: string): Promise<number> {
-    if (!this.config.fileSyncEnabled) return 0;
+  async syncAll(actorId: string): Promise<SyncResult> {
+    if (!this.config.fileSyncEnabled) return { created: 0, updated: 0, deleted: 0 };
 
     const namespace = scopeToNamespace({ kind: "agent", id: actorId });
     const filePaths = this.resolveFilePaths();
-    let syncedCount = 0;
+    let created = 0, updated = 0, deleted = 0;
 
     // Create or update files
     for (const filePath of filePaths) {
@@ -106,7 +112,7 @@ export class FileSync {
           ]);
           if (result.successful.length > 0) {
             this.state.files[filePath] = { hash, recordId: entry.recordId };
-            syncedCount++;
+            updated++;
             this.log.debug(`[file-sync] Updated ${filePath}`);
           } else {
             this.log.warn(`[file-sync] Failed to update ${filePath}: ${result.failed.join(", ")}`);
@@ -118,7 +124,7 @@ export class FileSync {
           ]);
           if (result.successful.length > 0) {
             this.state.files[filePath] = { hash, recordId: result.successful[0] };
-            syncedCount++;
+            created++;
             this.log.debug(`[file-sync] Created ${filePath}`);
           } else {
             this.log.warn(`[file-sync] Failed to create ${filePath}: ${result.failed.join(", ")}`);
@@ -141,7 +147,7 @@ export class FileSync {
         toDelete.push(entry.recordId);
         delete this.state.files[filePath];
         this.log.debug(`[file-sync] Deleted record for removed file ${filePath}`);
-        syncedCount++;
+        deleted++;
       }
     }
     if (toDelete.length > 0) {
@@ -152,12 +158,13 @@ export class FileSync {
       }
     }
 
-    if (syncedCount > 0) {
+    if (created + updated + deleted > 0) {
       this.state.lastSyncAt = new Date().toISOString();
       this.saveState();
+      this.log.info(`[file-sync] done: created=${created} updated=${updated} deleted=${deleted} namespace=${namespace}`);
     }
 
-    return syncedCount;
+    return { created, updated, deleted };
   }
 
   private resolveFilePaths(): string[] {

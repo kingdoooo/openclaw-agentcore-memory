@@ -281,10 +281,7 @@ const plugin = {
       // 1. File sync (independent, only needs actorId)
       if (fileSync) {
         try {
-          const synced = await fileSync.syncAll(actorId);
-          if (synced > 0) {
-            api.logger.debug(`[agentcore] [file-sync] synced: ${synced} files (actorId=${actorId})`);
-          }
+          await fileSync.syncAll(actorId);
         } catch (err) {
           api.logger.warn(`[agentcore] [file-sync] error: ${err}`);
         }
@@ -649,8 +646,17 @@ const plugin = {
               return;
             }
             const o = opts as { actor: string };
-            const count = await fileSync.syncAll(o.actor);
-            console.log(`Synced ${count} files to /agents/${o.actor}.`);
+            const result = await fileSync.syncAll(o.actor);
+            const { created, updated, deleted } = result;
+            const parts: string[] = [];
+            if (created > 0) parts.push(`${created} created`);
+            if (updated > 0) parts.push(`${updated} updated`);
+            if (deleted > 0) parts.push(`${deleted} deleted`);
+            if (parts.length === 0) {
+              console.log("No changes to sync.");
+            } else {
+              console.log(`File sync to /agents/${o.actor}: ${parts.join(", ")}.`);
+            }
           });
 
         prog
