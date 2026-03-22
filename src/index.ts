@@ -143,6 +143,7 @@ const plugin = {
         if (!client || !ready) return;
 
         try {
+          const recallStart = Date.now();
           const promptStr = extractText(event.prompt).trim();
           if (!promptStr) return;
 
@@ -151,7 +152,7 @@ const plugin = {
             const gate = shouldRetrieve(promptStr);
             if (!gate.shouldRetrieve) {
               api.logger.debug(
-                `[agentcore] Auto-recall skipped: ${gate.reason}`,
+                `[agentcore] [recall] gated: reason="${gate.reason}"`,
               );
               return;
             }
@@ -175,6 +176,11 @@ const plugin = {
             for (const ns of sessionNs) namespaces.push(ns);
           }
 
+          const sid = sessionId ? sessionId.slice(0, 8) : "none";
+          api.logger.debug(
+            `[agentcore] [recall] start: actorId=${actorId}, sessionId=${sid}, promptLen=${promptStr.length}, namespaces=${namespaces.length} [${namespaces.join(", ")}]`,
+          );
+
           // Parallel search across all accessible namespaces
           const results = await Promise.allSettled(
             namespaces.map((ns) =>
@@ -186,19 +192,42 @@ const plugin = {
             ),
           );
 
-          const allRecords = results
-            .filter(
-              (r): r is PromiseFulfilledResult<MemoryRecordResult[]> =>
-                r.status === "fulfilled",
-            )
-            .flatMap((r) => r.value);
+          // Log per-namespace results
+          let namespacesWithResults = 0;
+          const allRecords: MemoryRecordResult[] = [];
+          for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            const ns = namespaces[i];
+            if (r.status === "fulfilled") {
+              const count = r.value.length;
+              if (count > 0) {
+                namespacesWithResults++;
+                const scores = r.value.map((v) => (v.score ?? 0).toFixed(3)).join(", ");
+                api.logger.debug(`[agentcore] [recall] ns=${ns}: ${count} results (scores: ${scores})`);
+              } else {
+                api.logger.debug(`[agentcore] [recall] ns=${ns}: 0 results`);
+              }
+              allRecords.push(...r.value);
+            } else {
+              api.logger.debug(`[agentcore] [recall] ns=${ns}: FAILED (${r.reason})`);
+            }
+          }
 
-          if (allRecords.length === 0) return;
+          if (allRecords.length === 0) {
+            api.logger.info(
+              `[agentcore] [recall] done: 0 records from ${namespaces.length} namespaces, skipped injection, latencyMs=${Date.now() - recallStart}`,
+            );
+            return;
+          }
 
           // Sort by score, take top K, then apply score gap filter
           allRecords.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
           const topK = allRecords.slice(0, config.autoRecallTopK);
           const topRecords = filterByScoreGap(topK, config);
+
+          api.logger.debug(
+            `[agentcore] [recall] merged: ${allRecords.length} total → topK=${topK.length} → afterScoreGap=${topRecords.length}`,
+          );
 
           // Format as XML block
           const lines: string[] = ["<agentcore_memory>"];
@@ -217,9 +246,14 @@ const plugin = {
           }
           lines.push("</agentcore_memory>");
 
+          const topScore = topRecords.length > 0 ? (topRecords[0].score ?? 0).toFixed(3) : "N/A";
+          api.logger.info(
+            `[agentcore] [recall] done: injected ${topRecords.length} records from ${namespaces.length} namespaces (${namespacesWithResults}/${namespaces.length} had results), topScore=${topScore}, latencyMs=${Date.now() - recallStart}`,
+          );
+
           return { prependContext: lines.join("\n") };
         } catch (err) {
-          api.logger.warn(`[agentcore] Auto-recall error: ${err}`);
+          api.logger.warn(`[agentcore] [recall] error: ${err}`);
           return;
         }
       });
@@ -228,14 +262,20 @@ const plugin = {
     // --- Hook: Auto-Capture (agent_end) - fire-and-forget ---
     if (config.autoCaptureEnabled) {
       api.on("agent_end", async (event: any, ctx: any) => {
-        if (!client || !ready) return;
-        if (!event.success) return;
+        if (!client || !ready) {
+          api.logger.debug(`[agentcore] [capture] skipped: reason="not ready" (client=${!!client}, ready=${ready})`);
+          return;
+        }
+        if (!event.success) {
+          api.logger.debug(`[agentcore] [capture] skipped: reason="event not successful"`);
+          return;
+        }
 
         void (async () => {
           try {
+            const captureStart = Date.now();
             const messages = (event.messages ?? []) as Array<{ role?: string; content?: any }>;
-            api.logger.debug(`[agentcore] agent_end messages count=${messages.length}`);
-            if (messages.length === 0) { api.logger.debug(`[agentcore] agent_end skipped: no messages`); return; }
+            if (messages.length === 0) { api.logger.debug(`[agentcore] [capture] skipped: reason="no messages"`); return; }
 
             // Only capture last user+assistant pair (not full history)
             // AgentCore strategies handle extraction from each event
@@ -257,11 +297,15 @@ const plugin = {
               ? lastPair.filter((m) => !isNoise(extractText(m.content), noiseConfig))
               : lastPair;
 
+            if (filtered.length < lastPair.length) {
+              api.logger.debug(`[agentcore] [capture] noise-filtered: ${lastPair.length} → ${filtered.length} messages`);
+            }
+
             // Min length check (use extracted text lengths)
             const userLen = userText.length;
             const totalLen = userText.length + assistantText.length;
             if (userLen < 20 || totalLen < config.autoCaptureMinLength) {
-              api.logger.debug(`[agentcore] agent_end skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
+              api.logger.debug(`[agentcore] [capture] skipped: userLen=${userLen}, totalLen=${totalLen}, minLength=${config.autoCaptureMinLength}`);
               return;
             }
 
@@ -269,7 +313,13 @@ const plugin = {
               ? parseAgentIdFromSessionKey(ctx.sessionKey)
               : "default";
             const sessionId =
-              ctx.sessionId ?? `session-${Date.now()}`;
+              ctx.sessionId
+              ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined)
+              ?? `session-${Date.now()}`;
+
+            api.logger.debug(
+              `[agentcore] [capture] start: actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, totalMessages=${messages.length}, userLen=${userLen}, assistantLen=${assistantText.length}`,
+            );
 
             await client!.createEvent({
               actorId,
@@ -281,7 +331,7 @@ const plugin = {
             });
 
             api.logger.info(
-              `[agentcore] Auto-captured ${filtered.length} messages (actorId=${actorId}, sessionId=${sessionId})`,
+              `[agentcore] [capture] done: captured ${filtered.length} messages (actorId=${actorId}, sessionId=${sessionId.slice(0, 8)}, userLen=${userLen}, assistantLen=${assistantText.length}), latencyMs=${Date.now() - captureStart}`,
             );
 
             // File sync
@@ -292,12 +342,12 @@ const plugin = {
               );
               if (synced > 0) {
                 api.logger.debug(
-                  `[agentcore] File-synced ${synced} files`,
+                  `[agentcore] [capture] file-synced: ${synced} files`,
                 );
               }
             }
           } catch (err) {
-            api.logger.warn(`[agentcore] Auto-capture error: ${err}`);
+            api.logger.warn(`[agentcore] [capture] error: ${err}`);
           }
         })();
       });
