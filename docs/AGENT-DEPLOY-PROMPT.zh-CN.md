@@ -4,6 +4,8 @@
 
 将 `<REGION>` 替换为你的 AWS 区域（如 `us-west-2`）。
 
+> **注意**：Memory 资源是区域性的。如果要加入其他区域的已有 Memory，`<REGION>` 必须是该 Memory 所在的区域，而非你的本地默认区域。
+
 ---
 
 ## 部署消息
@@ -27,6 +29,9 @@
 
 跨 Agent 共享记忆只能在同一个 Memory ID 内实现。不同的 Memory ID 完全隔离，无法跨 Memory ID 共享。
 
+重要：Memory 资源是区域性的。在 us-west-2 创建的 Memory 只能在 us-west-2 中
+访问和使用。插件的 awsRegion 配置必须与 Memory 所在区域一致。
+
 先列出已有资源：
   aws bedrock-agentcore-control list-memories --region <REGION>
 
@@ -36,13 +41,20 @@
     → 执行下方的 create-memory 命令，保存生成的 Memory ID。
 
   选项 B：加入已有 Memory（与其他 Agent 共享）
-    → 向用户索要已有的 Memory ID。
+    → 向用户索要已有的 Memory ID 和它所在的区域。
+    → 如果 Memory 的区域与 <REGION> 不同，后续所有命令都使用 Memory 的区域
+      （相应更新 REGION）。
     → 策略模板是 Memory 级别的配置，不是 Agent 级别的。
       共享同一 Memory ID 的所有 Agent 自动使用相同的策略。
     → 跳过 create-memory，在阶段 2 直接使用该 Memory ID。
     → 验证已有 Memory：
-      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <REGION>
-    → 确认 Memory ID 后直接跳到阶段 1。
+      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <MEMORY_REGION>
+    → 如果用户不知道区域，提供以下扫描命令作为备选（不要默认执行）：
+      for R in us-east-1 us-west-2 eu-west-1 eu-central-1 ap-northeast-1 ap-southeast-1; do
+        echo "--- $R ---"
+        aws bedrock-agentcore-control list-memories --region $R 2>/dev/null | grep -i memoryId || echo "(none)"
+      done
+    → 确认 Memory ID 和区域后直接跳到阶段 1。
 
 --- 如果创建新 Memory 资源 ---
 
@@ -109,41 +121,38 @@
 共享 Memory ID 的每个 Agent 必须有唯一的 agent ID，在 openclaw.json 的 agents.list[].id 中设置。
 如果没有设置唯一 ID，所有 Agent 默认使用 actorId "main"，记忆会意外合并。
 
-检查当前 agent ID：
-  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print([a.get('id','(未设置, 默认为 main)') for a in agents] if agents else '未配置 agents（默认为 main）')"
+检查当前 agents 列表：
+  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print(json.dumps([{'name':a.get('name','?'), 'id':a.get('id','(未设置, 默认为 main)')} for a in agents], indent=2) if agents else '未配置 agents（默认为 main）')"
 
-如果未设置唯一 ID 且要加入已有 Memory，询问用户要使用什么 agent ID。
+如果未设置唯一 ID 且要加入已有 Memory：
+  1. 向用户展示当前的 agents 列表。
+  2. 询问需要为哪个 agent 设置 ID，以及使用什么 ID。
+  3. 通过 openclaw config.patch 设置（保留注释和格式）：
+     AGENT_INDEX=0   # agents.list[] 中的索引 — 询问用户是哪个
+     AGENT_ID="<期望的唯一 agent ID>"
+     openclaw config.patch "{\"agents\":{\"list\":{\"$AGENT_INDEX\":{\"id\":\"$AGENT_ID\"}}}}"
+
+警告：不要设置 agents.defaults.id — OpenClaw 不支持此字段，Gateway 会拒绝该配置。
+警告：不要盲目修改 agents.list[0] — 如果存在多个 agent，必须询问用户要更新哪个。
 
 编辑 ~/.openclaw/openclaw.json。必须合并到现有配置中，不要覆盖。
 
 关键：所有路径必须是绝对路径。不要在配置值中使用 ~。Node.js 不会展开 ~。
 
-使用以下 Python 脚本。将 MEMORY_ID_HERE 替换为阶段 0 的 memoryId，REGION_HERE 替换为 AWS 区域：
+通过 openclaw config.patch 配置插件（保留注释和格式）：
 
   MEMORY_ID="<粘贴阶段 0 的 memoryId>"
-  REGION="<REGION>"
-  python3 -c "
-  import json, os, sys
-  memory_id = sys.argv[1]
-  region = sys.argv[2]
-  config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-  plugin_dir = os.path.realpath(os.path.expanduser('~/.openclaw/plugins/memory-agentcore'))
-  with open(config_path, 'r') as f:
-      cfg = json.load(f)
-  cfg.setdefault('plugins', {})
-  cfg['plugins'].setdefault('allow', [])
-  cfg['plugins'].setdefault('entries', {})
-  if 'memory-agentcore' not in cfg['plugins']['allow']:
-      cfg['plugins']['allow'].append('memory-agentcore')
-  cfg['plugins']['load'] = {'paths': [plugin_dir]}
-  cfg['plugins']['entries']['memory-agentcore'] = {
-      'enabled': True,
-      'config': {'memoryId': memory_id, 'awsRegion': region}
-  }
-  with open(config_path, 'w') as f:
-      json.dump(cfg, f, indent=2, ensure_ascii=False)
-  print(f'Done. memoryId={memory_id}, region={region}, path={plugin_dir}')
-  " "$MEMORY_ID" "$REGION"
+  REGION="<REGION>"   # 必须是 Memory 所在的区域（新建时相同，加入时可能不同）
+  PLUGIN_DIR="$(realpath $HOME/.openclaw/plugins/memory-agentcore)"
+
+  # 添加插件到允许列表
+  openclaw config.patch '{"plugins":{"allow":["memory-agentcore"]}}'
+
+  # 设置插件加载路径
+  openclaw config.patch "{\"plugins\":{\"load\":{\"paths\":[\"$PLUGIN_DIR\"]}}}"
+
+  # 设置插件配置（memoryId、awsRegion）
+  openclaw config.patch "{\"plugins\":{\"entries\":{\"memory-agentcore\":{\"enabled\":true,\"config\":{\"memoryId\":\"$MEMORY_ID\",\"awsRegion\":\"$REGION\"}}}}}"
 
 验证配置是否正确写入：
   python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); e=cfg['plugins']['entries']['memory-agentcore']; print(f'memoryId={e[\"config\"][\"memoryId\"]}'); print(f'path={cfg[\"plugins\"][\"load\"][\"paths\"][0]}'); assert not e['config']['memoryId'].startswith('<'), 'ERROR: memoryId still has placeholder!'; assert '~' not in cfg['plugins']['load']['paths'][0], 'ERROR: path contains ~!'"
@@ -249,6 +258,7 @@ Gateway 重启且插件加载后：
 | `npm run build` 失败 | Node.js < v18 | 升级到 Node.js v18+ |
 | 配置占位符未替换 | 配置中仍是 `<MEMORY_ID>` | 用实际的 memoryId 重新运行阶段 2 |
 | `AccessDeniedException` | 缺少 IAM 权限 | 确认该区域已启用 bedrock-agentcore |
+| 加入后 `Connection: FAILED` | Memory 在其他区域 | 用 `get-memory --region <正确区域>` 验证，更新配置中的 `awsRegion` |
 
 ## 更新插件
 

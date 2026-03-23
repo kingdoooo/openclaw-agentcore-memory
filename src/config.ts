@@ -140,9 +140,9 @@ export function resolveConfig(
     enabled: bool(env.AGENTCORE_ENABLED, raw.enabled, DEFAULTS.enabled),
     memoryId: str(env.AGENTCORE_MEMORY_ID, raw.memoryId, DEFAULTS.memoryId),
     awsRegion: str(
-      env.AWS_REGION ?? env.AGENTCORE_REGION,
+      env.AGENTCORE_REGION,
       raw.awsRegion,
-      DEFAULTS.awsRegion,
+      env.AWS_REGION ?? DEFAULTS.awsRegion,
     ),
     awsProfile: str(
       env.AWS_PROFILE ?? env.AGENTCORE_PROFILE,

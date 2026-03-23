@@ -4,6 +4,8 @@ Send the message below to your OpenClaw agent. It handles the full installation.
 
 Replace `<REGION>` with your AWS region (e.g., `us-west-2`).
 
+> **Note**: Memory resources are regional. If joining an existing Memory in a different region, `<REGION>` must be that Memory's region, not your local default.
+
 ---
 
 ## Deploy Message
@@ -27,6 +29,10 @@ PHASE 0: CREATE OR JOIN MEMORY RESOURCE
 
 Memory sharing across agents works ONLY within the same Memory ID. Different Memory IDs are fully isolated — there is no cross-Memory-ID sharing.
 
+IMPORTANT: Memory resources are REGIONAL. A Memory created in us-west-2 is only
+visible and accessible in us-west-2. The plugin's awsRegion config MUST match
+the region where the Memory lives.
+
 List existing resources to see what's already there:
   aws bedrock-agentcore-control list-memories --region <REGION>
 
@@ -36,13 +42,20 @@ ASK THE USER: "Is this a new standalone agent, or should it share memory with ex
     → Run create-memory command below, then save the resulting Memory ID.
 
   Option B: Join EXISTING Memory (share with other agents)
-    → Ask user for the existing Memory ID.
+    → Ask user for BOTH the existing Memory ID AND the region it was created in.
+    → If the Memory's region differs from <REGION>, use the Memory's region for
+      all subsequent commands (update REGION accordingly).
     → Strategy templates are defined at the MEMORY level, not per-agent.
       All agents sharing a Memory ID use the same strategies automatically.
     → Skip create-memory, use provided Memory ID directly in Phase 2.
     → To verify the existing Memory, run:
-      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <REGION>
-    → SKIP to PHASE 1 after confirming the Memory ID.
+      aws bedrock-agentcore-control get-memory --memory-id "<ID>" --region <MEMORY_REGION>
+    → If the user doesn't know the region, offer this scan as fallback (do NOT run by default):
+      for R in us-east-1 us-west-2 eu-west-1 eu-central-1 ap-northeast-1 ap-southeast-1; do
+        echo "--- $R ---"
+        aws bedrock-agentcore-control list-memories --region $R 2>/dev/null | grep -i memoryId || echo "(none)"
+      done
+    → SKIP to PHASE 1 after confirming the Memory ID and region.
 
 --- If creating a NEW Memory resource ---
 
@@ -109,41 +122,38 @@ IMPORTANT — AGENT ID CHECK (when sharing a Memory ID across agents):
 Each agent sharing a Memory ID MUST have a unique agent ID, set via agents.list[].id in openclaw.json.
 Without a unique ID, all agents default to actorId "main" and their memories merge unintentionally.
 
-Check current agent ID:
-  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print([a.get('id','(no id, defaults to main)') for a in agents] if agents else 'No agents configured (defaults to main)')"
+Check current agents list:
+  python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); agents=cfg.get('agents',{}).get('list',[]); print(json.dumps([{'name':a.get('name','?'), 'id':a.get('id','(not set, defaults to main)')} for a in agents], indent=2) if agents else 'No agents configured (defaults to main)')"
 
-If no unique ID is set and you are joining an existing Memory, ask the user what agent ID to use.
+If no unique ID is set and you are joining an existing Memory:
+  1. Show the current agents list to the user.
+  2. Ask which agent needs an ID and what ID to use.
+  3. Set it via openclaw config.patch (preserves comments and formatting):
+     AGENT_INDEX=0   # Index of the agent in agents.list[] — ask user which one
+     AGENT_ID="<desired unique agent ID>"
+     openclaw config.patch "{\"agents\":{\"list\":{\"$AGENT_INDEX\":{\"id\":\"$AGENT_ID\"}}}}"
+
+WARNING: Do NOT set agents.defaults.id — OpenClaw does not support this field and Gateway will reject the config.
+WARNING: Do NOT blindly modify agents.list[0] — if multiple agents exist, ask the user which one to update.
 
 Edit ~/.openclaw/openclaw.json. MERGE into existing config, do not overwrite.
 
 CRITICAL: All paths must be ABSOLUTE. Do NOT use ~ in config values. Node.js does not expand ~.
 
-Use this Python script. Replace MEMORY_ID_HERE with the memoryId from Phase 0, and REGION_HERE with your AWS region:
+Configure the plugin using openclaw config.patch (preserves comments and formatting):
 
   MEMORY_ID="<paste memoryId from Phase 0>"
-  REGION="<REGION>"
-  python3 -c "
-  import json, os, sys
-  memory_id = sys.argv[1]
-  region = sys.argv[2]
-  config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-  plugin_dir = os.path.realpath(os.path.expanduser('~/.openclaw/plugins/memory-agentcore'))
-  with open(config_path, 'r') as f:
-      cfg = json.load(f)
-  cfg.setdefault('plugins', {})
-  cfg['plugins'].setdefault('allow', [])
-  cfg['plugins'].setdefault('entries', {})
-  if 'memory-agentcore' not in cfg['plugins']['allow']:
-      cfg['plugins']['allow'].append('memory-agentcore')
-  cfg['plugins']['load'] = {'paths': [plugin_dir]}
-  cfg['plugins']['entries']['memory-agentcore'] = {
-      'enabled': True,
-      'config': {'memoryId': memory_id, 'awsRegion': region}
-  }
-  with open(config_path, 'w') as f:
-      json.dump(cfg, f, indent=2, ensure_ascii=False)
-  print(f'Done. memoryId={memory_id}, region={region}, path={plugin_dir}')
-  " "$MEMORY_ID" "$REGION"
+  REGION="<REGION>"   # Must be the Memory's region (same for new, may differ for joined)
+  PLUGIN_DIR="$(realpath $HOME/.openclaw/plugins/memory-agentcore)"
+
+  # Add plugin to allow list
+  openclaw config.patch '{"plugins":{"allow":["memory-agentcore"]}}'
+
+  # Set plugin load path
+  openclaw config.patch "{\"plugins\":{\"load\":{\"paths\":[\"$PLUGIN_DIR\"]}}}"
+
+  # Set plugin config (memoryId, awsRegion)
+  openclaw config.patch "{\"plugins\":{\"entries\":{\"memory-agentcore\":{\"enabled\":true,\"config\":{\"memoryId\":\"$MEMORY_ID\",\"awsRegion\":\"$REGION\"}}}}}"
 
 Verify the config was written correctly:
   python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); e=cfg['plugins']['entries']['memory-agentcore']; print(f'memoryId={e[\"config\"][\"memoryId\"]}'); print(f'path={cfg[\"plugins\"][\"load\"][\"paths\"][0]}'); assert not e['config']['memoryId'].startswith('<'), 'ERROR: memoryId still has placeholder!'; assert '~' not in cfg['plugins']['load']['paths'][0], 'ERROR: path contains ~!'"
@@ -249,6 +259,7 @@ After the gateway restarts and the plugin is loaded:
 | `npm run build` fails | Node.js < v18 | Upgrade to Node.js v18+ |
 | Config placeholder not replaced | `<MEMORY_ID>` still in config | Re-run Phase 2 with actual memoryId |
 | `AccessDeniedException` | Missing IAM permissions | Ensure bedrock-agentcore is available in your region |
+| `Connection: FAILED` after join | Memory is in a different region | Verify with `get-memory --region <correct-region>`, update `awsRegion` in config |
 
 ## Updating
 
