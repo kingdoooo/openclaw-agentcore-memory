@@ -283,7 +283,7 @@ Multiple agents can share memory through a single Memory resource using namespac
 }
 ```
 
-Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by default. In `per-agent` mode, auto-recall also searches the agent's strategy namespaces (`/semantic/<id>`, `/episodic/<id>`, etc.) which are populated by `createEvent`. Additional cross-agent access configured via `scopes` — authorized agents' strategy namespaces are included automatically. IAM policies provide server-side enforcement.
+Permissions are always enforced. Each agent can only access `/global` + its own namespaces (`/agents/<id>`, `/semantic/<id>`, `/episodic/<id>`, `/preferences/<id>`, `/summary/<id>`) by default. Cross-agent access requires explicit `scopes` configuration — entries are **additive** on top of defaults (no need to list `global` or `agent:<self>`). IAM policies provide server-side enforcement.
 
 **Important**: When sharing a Memory ID across agents, each agent **must** have a unique agent ID (`agents.list[].id` in openclaw.json). Without it, all agents default to `main` and their memories merge.
 
@@ -296,6 +296,8 @@ Each agent reads/writes its own namespace (`/agents/<id>`) + `/global` by defaul
 | `project:ecommerce` | `/projects/ecommerce` |
 | `user:alice` | `/users/alice` |
 | `custom:team-x` | `/custom/team-x` |
+
+> Before modifying memory-agentcore configuration, tell your OpenClaw Agent to read the [agentcore-memory-guide](skills/agentcore-memory-guide/SKILL.md) skill first. The agent will understand the rules and handle configuration changes. See this skill for complete scope syntax reference, cross-agent sharing patterns, and troubleshooting tips.
 
 ### Namespace Architecture
 

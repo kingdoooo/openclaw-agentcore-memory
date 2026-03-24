@@ -37,6 +37,8 @@ To verify the plugin is working, use `agentcore-memory-validation` (19 automated
 /custom/<id>               — Freeform.
 ```
 
+**Default isolation**: Each agent can only access `/global` + its own namespaces. Cross-agent access is denied unless explicitly configured via `scopes`.
+
 ### Scope Parameter Syntax
 
 All tools accept a `scope` parameter:
@@ -46,6 +48,31 @@ All tools accept a `scope` parameter:
 - `"user:kent"` -> `/users/kent`
 - `"custom:shared-kb"` -> `/custom/shared-kb`
 
+**Scope syntax**: `<kind>:<id>[:<strategy>]`
+
+| Kind | Example | Namespace |
+|------|---------|-----------|
+| `global` | `"global"` | `/global` |
+| `agent` | `"agent:sales-bot"` | `/agents/sales-bot` + strategy namespaces |
+| `project` | `"project:ecommerce"` | `/projects/ecommerce` |
+| `user` | `"user:kent"` | `/users/kent` |
+| `custom` | `"custom:shared-kb"` | `/custom/shared-kb` |
+
+**Strategy filter** (optional third segment, agent scope only):
+
+| Strategy | Example | Namespace |
+|----------|---------|-----------|
+| `semantic` | `"agent:bot:semantic"` | `/semantic/bot` |
+| `episodic` | `"agent:bot:episodic"` | `/episodic/bot` |
+| `preferences` | `"agent:bot:preferences"` | `/preferences/bot` |
+| `summary` | `"agent:bot:summary"` | `/summary/bot` |
+| `primary` | `"agent:bot:primary"` | `/agents/bot` |
+
+Without strategy segment, `"agent:bot"` expands to all 5 namespaces.
+Invalid kind → falls back to global. Invalid strategy → entry ignored (least privilege).
+
+> **Invalid scope handling**: Unknown kind (e.g. `"banana:xyz"`) silently falls back to global scope. Unknown strategy (e.g. `"agent:bot:typo"`) silently ignores the entry. Check gateway logs (`warn` level) if permissions behave unexpectedly.
+
 ### Auto-Recall Behavior
 
 The `before_prompt_build` hook automatically searches these namespaces in parallel:
@@ -54,7 +81,7 @@ The `before_prompt_build` hook automatically searches these namespaces in parall
 3. Strategy namespaces for current agent (controlled by `namespaceMode`):
    - `per-agent`: `/semantic/<id>`, `/episodic/<id>`, `/preferences/<id>`, `/summary/<id>`
    - `shared`: `/semantic`, `/episodic`, `/preferences`, `/summary`
-4. Authorized agents' namespaces from `scopes.agentAccess` (agent scopes also expand to their strategy namespaces)
+4. Authorized agents' namespaces from `scopes.agentAccess` — **without this config, only own namespaces are searched**
 
 Results are merged, deduplicated, sorted by score, filtered by score gap detection, and injected as `<agentcore_memory>` context before each turn.
 
@@ -101,6 +128,9 @@ Configure in `openclaw.json` -> `plugins.entries.memory-agentcore.config.scopes`
 - `bot-b`'s auto-recall searches: `/global` + `/agents/bot-b` + `/agents/bot-a`
 - `bot-a` can write to `/projects/shared`; `bot-b` cannot
 - Both can always write to `/global` and their own `/agents/<id>`
+
+Entries are **additive** — `global` and `agent:<self>` are always included, no need to list them.
+Strategy-level granularity: `"agent:agama:semantic"` grants read access to agama's semantic namespace only.
 
 ## Configuration Reference
 

@@ -86,7 +86,7 @@ Use `agentcore_stats`:
 
 Use `agentcore_share`:
 - content: `"Shared verification: memory-agentcore is operational"`
-- target_scopes: `["agent:test-agent"]`
+- target_scopes: `["global"]`
 - category: `"fact"`
 
 **PASS** if `"shared": true`.
@@ -101,7 +101,7 @@ Use `agentcore_share`:
 2. Use `agentcore_forget`:
    - search_query: `"memory-agentcore is operational"`
    - confirm: `true`
-   - scope: `"agent:test-agent"`
+   - scope: `"global"`
 
 **PASS** if `"deleted": true`.
 
@@ -173,23 +173,27 @@ Immediately call `agentcore_stats` again.
 
 ### Test 15: Purge — Preview
 
+Use your own agent scope (e.g. `"agent:<your-agent-id>"`):
+
 Use `agentcore_forget`:
 - purge_scope: `true`
-- scope: `"agent:purge-test"`
+- scope: `"agent:<your-agent-id>"`
 - confirm: `false`
 
 **PASS** if response contains `"purge_preview": true` and `"estimated_count"` field.
 
 ### Test 16: Purge — Full Cycle
 
-**Step 1**: Store 3 records in scope `"agent:purge-test"`:
+Use your own agent scope throughout (e.g. `"agent:<your-agent-id>"`):
+
+**Step 1**: Store 3 records in your own agent scope:
 - `"Purge test record A"`, `"Purge test record B"`, `"Purge test record C"`
 
-**Step 2**: Preview — `agentcore_forget` with purge_scope: true, confirm: false. Verify `estimated_count` >= 3.
+**Step 2**: Preview — `agentcore_forget` with purge_scope: true, scope: your agent scope, confirm: false. Verify `estimated_count` >= 3.
 
-**Step 3**: Execute — `agentcore_forget` with purge_scope: true, confirm: true. Verify `"purged": true`.
+**Step 3**: Execute — `agentcore_forget` with purge_scope: true, scope: your agent scope, confirm: true. Verify `"purged": true`.
 
-**Step 4**: Verify — `agentcore_search` with scope `"agent:purge-test"`. Should return 0 records.
+**Step 4**: Verify — `agentcore_search` with your agent scope. Should return 0 records.
 
 **PASS** if purged and scope is empty.
 

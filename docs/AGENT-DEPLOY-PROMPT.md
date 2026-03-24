@@ -207,12 +207,18 @@ Your memory has two layers:
 
 **Auto-recall searches all of**: `/global`, `/agents/<id>`, all strategy namespaces for own agent, current session summary/episodic, plus all authorized agents' strategy namespaces.
 
-**scope parameter syntax**: `"global"`, `"agent:sales-bot"`, `"project:ecommerce"`, `"user:kent"`
+**scope parameter syntax**: `<kind>:<id>[:<strategy>]`
+- Kinds: `global`, `agent:<id>`, `project:<id>`, `user:<id>`, `custom:<id>`
+- Strategy filter (agent scope only): `semantic`, `episodic`, `preferences`, `summary`, `primary`
+- Example: `"agent:sales-bot:semantic"` → only semantic namespace
+- Invalid kind → global fallback. Invalid strategy → entry ignored.
 
 **Cross-agent sharing**:
 - Write to other namespace: `agentcore_share` with target_scopes: ["agent:other-bot"]
 - Read from other namespace: `agentcore_recall` / `agentcore_search` with scope: "agent:other-bot"
 - Auto-recall includes authorized agents: configure `agentAccess` below
+
+**Permissions are always enforced.** Without `scopes` config, each agent is isolated to `/global` + own namespaces.
 
 **Access control** (openclaw.json → plugins.entries.memory-agentcore.config.scopes):
 ```json
@@ -224,6 +230,8 @@ Your memory has two layers:
 With this config, bot-a's auto-recall searches all its own namespaces + bot-b's strategy namespaces + /projects/shared.
 
 **Important**: Agent ID (agents.list[].id) must be unique when sharing a Memory ID. All agents default to "main" if not set.
+
+Before modifying memory-agentcore configuration, tell your OpenClaw Agent to read the `agentcore-memory-guide` skill first. The agent will understand scope syntax and access control rules, then handle the configuration changes.
 AGENTS_EOF
 
 PHASE 4: RESTART

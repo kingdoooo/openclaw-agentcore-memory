@@ -206,12 +206,18 @@ cat >> "$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HO
 
 **Auto-recall 搜索范围**：`/global`、`/agents/<id>`、自身所有策略 namespace、当前会话的 summary/episodic，以及所有授权 agent 的策略 namespace。
 
-**scope 参数语法**：`"global"`, `"agent:sales-bot"`, `"project:ecommerce"`, `"user:kent"`
+**scope 参数语法**：`<kind>:<id>[:<strategy>]`
+- Kind：`global`、`agent:<id>`、`project:<id>`、`user:<id>`、`custom:<id>`
+- Strategy 过滤（仅 agent scope）：`semantic`、`episodic`、`preferences`、`summary`、`primary`
+- 示例：`"agent:sales-bot:semantic"` → 仅 semantic namespace
+- 无效 kind → 回退到 global。无效 strategy → 该条目被忽略。
 
 **跨 Agent 共享**：
 - 写入其他 namespace：`agentcore_share` + target_scopes: ["agent:other-bot"]
 - 读取其他 namespace：`agentcore_recall` / `agentcore_search` + scope: "agent:other-bot"
 - Auto-recall 自动包含授权 agent：配置下方的 `agentAccess`
+
+**权限始终强制执行。**未配置 `scopes` 时，每个 Agent 只能访问 `/global` + 自己的 namespace。
 
 **访问控制**（openclaw.json → plugins.entries.memory-agentcore.config.scopes）：
 ```json
@@ -223,6 +229,8 @@ cat >> "$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HO
 以上配置下，bot-a 的 auto-recall 搜索自身所有 namespace + bot-b 的策略 namespace + /projects/shared。
 
 **重要**：共享 Memory ID 时，Agent ID（agents.list[].id）必须唯一。未设置时所有 Agent 默认为 "main"。
+
+修改 memory-agentcore 配置前，请先让你的 OpenClaw Agent 查阅 `agentcore-memory-guide` skill。Agent 理解 scope 语法和权限规则后，会自行完成配置修改。
 AGENTS_EOF
 
 阶段 4：重启

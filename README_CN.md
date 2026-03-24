@@ -283,7 +283,7 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 }
 ```
 
-每个 Agent 默认读写自己的 namespace（`/agents/<id>`）+ `/global`。在 `per-agent` 模式下，auto-recall 还会搜索该 agent 的策略 namespace（`/semantic/<id>`、`/episodic/<id>` 等，由 `createEvent` 写入）。通过 `scopes` 配置跨 Agent 访问权限——被授权 agent 的策略 namespace 会自动包含。IAM 策略在服务端强制执行。
+权限始终强制执行。每个 Agent 默认只能访问 `/global` + 自己的 namespace（`/agents/<id>`、`/semantic/<id>`、`/episodic/<id>`、`/preferences/<id>`、`/summary/<id>`）。跨 Agent 访问需要显式配置 `scopes`——条目在默认权限基础上**追加**（无需列出 `global` 或 `agent:<自己>`）。IAM 策略在服务端强制执行。
 
 **重要**：共享 Memory ID 时，每个 Agent **必须**有唯一的 agent ID（openclaw.json 中的 `agents.list[].id`）。未设置时所有 Agent 默认为 `main`，记忆会意外合并。
 
@@ -296,6 +296,8 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 | `project:ecommerce` | `/projects/ecommerce` |
 | `user:alice` | `/users/alice` |
 | `custom:team-x` | `/custom/team-x` |
+
+> 修改 memory-agentcore 配置前，请先让你的 OpenClaw Agent 查阅 [agentcore-memory-guide](skills/agentcore-memory-guide/SKILL.md) skill。Agent 理解规则后会自行完成配置修改。完整的 scope 语法参考、跨 Agent 共享模式和问题排查均在此 skill 中。
 
 ### Namespace 架构
 

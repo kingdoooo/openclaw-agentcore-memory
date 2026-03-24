@@ -469,15 +469,34 @@ export function scopeToNamespace(scope: Scope): string {
 }
 ```
 
+### parseScope 解析规则
+
+来源: `src/scopes.ts:13-30`
+
+| 输入 | 解析结果 | 说明 |
+|------|---------|------|
+| `"global"` | `{ kind: "global" }` | |
+| `"agent:agama"` | `{ kind: "agent", id: "agama" }` | 展开 5 个 namespace |
+| `"agent:agama:semantic"` | `{ kind: "agent", id: "agama", strategy: "semantic" }` | 仅 1 个 namespace |
+| `"agent:agama:typo"` | `{ kind: "global" }` | 无效 strategy → 最小权限 |
+| `"project:p1"` | `{ kind: "project", id: "p1" }` | |
+| `"user:kent"` | `{ kind: "user", id: "kent" }` | |
+| `"custom:kb"` | `{ kind: "custom", id: "kb" }` | |
+| `"banana:xyz"` | `{ kind: "global" }` | 无效 kind → 回退 |
+| `"abc"` | `{ kind: "global" }` | 无冒号 → 回退 |
+
+合法 kind：`global`、`agent`、`project`、`user`、`custom`
+合法 strategy：`semantic`、`episodic`、`preferences`、`summary`、`primary`
+
 ### 6.2 访问控制模型
 
 来源: `src/scopes.ts:46-82`, `README.md:249-286`
 
-每个 Agent 默认可以访问：
-- `/global`（全局共享）
-- `/agents/<自己的ID>`（自己的记忆）
+权限始终强制执行。每个 Agent 默认**只能**访问：
+- `/global`（全局共享，始终可读可写）
+- 自己的全部 namespace（`/agents/<ID>`、`/semantic/<ID>`、`/episodic/<ID>`、`/preferences/<ID>`、`/summary/<ID>`）
 
-通过 `scopes.agentAccess` 配置额外的读权限：
+跨 Agent 访问需通过 `scopes.agentAccess` 显式配置（追加式，无需重复列出 global 和自己）：
 
 ```json5
 {

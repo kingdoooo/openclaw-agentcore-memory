@@ -16,6 +16,7 @@ export function parseScope(scope: string): Scope {
   if (parts.length < 2) return { kind: "global" };
   const kind = parts[0];
   if (!["agent", "project", "user", "custom"].includes(kind)) {
+    console.warn(`[agentcore] [scopes] Invalid scope kind "${kind}" in "${scope}", falling back to global`);
     return { kind: "global" };
   }
   const id = parts[1];
@@ -24,7 +25,8 @@ export function parseScope(scope: string): Scope {
     if ((VALID_STRATEGIES as readonly string[]).includes(strategy)) {
       return { kind: kind as ScopeKind, id, strategy };
     }
-    return { kind: "global" }; // invalid strategy → least privilege
+    console.warn(`[agentcore] [scopes] Invalid strategy "${strategy}" in "${scope}", entry ignored (least privilege)`);
+    return { kind: "global" };
   }
   return { kind: kind as ScopeKind, id };
 }
@@ -174,12 +176,12 @@ export function buildEpisodicNamespace(
 
 // --- Permission enforcement helpers ---
 
-function hasReadEnforcement(sc: ScopesConfig): boolean {
-  return Object.keys(sc.agentAccess).length > 0;
+function hasReadEnforcement(_sc: ScopesConfig): boolean {
+  return true;
 }
 
-function hasWriteEnforcement(sc: ScopesConfig): boolean {
-  return Object.keys(sc.writeAccess).length > 0;
+function hasWriteEnforcement(_sc: ScopesConfig): boolean {
+  return true;
 }
 
 export function isScopeReadable(

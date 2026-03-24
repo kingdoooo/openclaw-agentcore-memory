@@ -136,7 +136,7 @@
               "type": "array",
               "items": { "type": "string" }
             },
-            "description": "Cross-agent read access"
+            "description": "Cross-agent read access (additive — global + self always included)"
           },
           "writeAccess": {
             "type": "object",
@@ -144,7 +144,7 @@
               "type": "array",
               "items": { "type": "string" }
             },
-            "description": "Cross-agent write access"
+            "description": "Cross-agent write access (additive — global + self always included)"
           }
         }
       }
