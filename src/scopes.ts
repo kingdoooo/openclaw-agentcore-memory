@@ -59,7 +59,10 @@ export function buildStrategyNamespaces(actorId: string, mode: NamespaceMode): s
 export function scopeToSearchNamespaces(scope: Scope, mode: NamespaceMode): string[] {
   const primary = scopeToNamespace(scope);
   if (scope.kind === "agent" && scope.id) {
-    return [primary, ...buildStrategyNamespaces(scope.id, mode)];
+    const summaryNs = mode === "shared"
+      ? "/summary"
+      : `/summary/${sanitizeId(scope.id)}`;
+    return [primary, ...buildStrategyNamespaces(scope.id, mode), summaryNs];
   }
   return [primary];
 }
@@ -134,6 +137,55 @@ export function buildEpisodicNamespace(
     return `/episodic/${sanitizeId(actorId)}`;
   }
   return "/episodic";
+}
+
+// --- Permission enforcement helpers ---
+
+function hasReadEnforcement(sc: ScopesConfig): boolean {
+  return Object.keys(sc.agentAccess).length > 0;
+}
+
+function hasWriteEnforcement(sc: ScopesConfig): boolean {
+  return Object.keys(sc.writeAccess).length > 0;
+}
+
+export function isScopeReadable(
+  actorId: string,
+  requestedNamespaces: string[],
+  scopesConfig: ScopesConfig,
+  mode: NamespaceMode,
+): { allowed: boolean; denied: string[] } {
+  if (!hasReadEnforcement(scopesConfig)) return { allowed: true, denied: [] };
+  const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode));
+  const denied = requestedNamespaces.filter(ns => !accessible.has(ns));
+  return { allowed: denied.length === 0, denied };
+}
+
+export function isScopeWritable(
+  actorId: string,
+  requestedNamespace: string,
+  scopesConfig: ScopesConfig,
+): boolean {
+  if (!hasWriteEnforcement(scopesConfig)) return true;
+  return resolveWritableNamespaces(actorId, scopesConfig).includes(requestedNamespace);
+}
+
+// --- Strategy-to-namespace prefix mapping ---
+
+export const STRATEGY_PREFIX_MAP: Record<string, string> = {
+  SEMANTIC: "semantic",
+  USER_PREFERENCE: "preferences",
+  EPISODIC: "episodic",
+  SUMMARY: "summary",
+};
+
+/** Filter namespaces to only those matching a strategy prefix. Returns all if no match. */
+export function filterNamespacesByStrategy(namespaces: string[], strategy?: string): string[] {
+  if (!strategy) return namespaces;
+  const prefix = STRATEGY_PREFIX_MAP[strategy];
+  if (!prefix) return namespaces;
+  const filtered = namespaces.filter(ns => ns.startsWith(`/${prefix}`));
+  return filtered.length > 0 ? filtered : namespaces;
 }
 
 /** Session-scoped strategy namespaces that need a separate search.

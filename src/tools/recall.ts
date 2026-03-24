@@ -1,11 +1,12 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToSearchNamespaces } from "../scopes.js";
+import { parseScope, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createRecallTool(
   client: AgentCoreClient,
   config: PluginConfig,
+  getActorId: () => string,
 ) {
   return {
     name: "agentcore_recall",
@@ -49,7 +50,20 @@ export function createRecallTool(
       const strategy = params.strategy as string | undefined;
 
       const scope = parseScope(scopeStr);
-      const namespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
+      const allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
+
+      // Permission check
+      const actorId = getActorId();
+      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode);
+      if (!readCheck.allowed) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
+          details: { error: "permission_denied" },
+        };
+      }
+
+      // Filter namespaces by strategy instead of passing strategyId to AWS
+      const namespaces = filterNamespacesByStrategy(allNamespaces, strategy);
 
       try {
         const allResults = await Promise.allSettled(
@@ -58,7 +72,6 @@ export function createRecallTool(
               query,
               namespace: ns,
               topK: limit,
-              ...(strategy ? { strategyId: strategy } : {}),
             }),
           ),
         );

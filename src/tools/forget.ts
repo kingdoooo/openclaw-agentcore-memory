@@ -1,7 +1,8 @@
 import type { AgentCoreClient } from "../client.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import type { PluginConfig } from "../config.js";
+import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
 
-export function createForgetTool(client: AgentCoreClient) {
+export function createForgetTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
   return {
     name: "agentcore_forget",
     label: "AgentCore Forget",
@@ -42,10 +43,20 @@ export function createForgetTool(client: AgentCoreClient) {
       const confirm = (params.confirm as boolean) ?? false;
       const scopeStr = (params.scope as string) ?? "global";
       const purgeScope = (params.purge_scope as boolean) ?? false;
+      const actorId = getActorId();
 
       // Purge entire scope
       if (purgeScope) {
         const namespace = scopeToNamespace(parseScope(scopeStr));
+
+        // Write permission check
+        if (!isScopeWritable(actorId, namespace, config.scopes)) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
+            details: { deleted: false, error: "permission_denied" },
+          };
+        }
+
         try {
           // Count first
           let totalCount = 0;
@@ -98,9 +109,30 @@ export function createForgetTool(client: AgentCoreClient) {
         }
       }
 
-      // Direct delete by IDs
+      // Direct delete by IDs — look up each record to check namespace writability
       if (recordIds && recordIds.length > 0) {
         try {
+          // Look up records in parallel to check permissions
+          const lookups = await Promise.allSettled(
+            recordIds.map(id => client.getMemoryRecord(id)),
+          );
+          const denied: string[] = [];
+          for (let i = 0; i < lookups.length; i++) {
+            const result = lookups[i];
+            if (result.status === "fulfilled" && result.value) {
+              const record = result.value;
+              const writable = record.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes));
+              if (!writable) denied.push(recordIds[i]);
+            }
+            // If record not found or lookup failed, allow the delete attempt (will fail naturally)
+          }
+          if (denied.length > 0) {
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Cannot delete records not in your writable namespaces: ${denied.join(", ")}. Configure scopes.writeAccess to grant access.` }) }],
+              details: { deleted: false, error: "permission_denied" },
+            };
+          }
+
           await client.batchDeleteRecords(recordIds);
           const data = { deleted: true, count: recordIds.length, recordIds };
           return {
@@ -118,6 +150,15 @@ export function createForgetTool(client: AgentCoreClient) {
       // Search-based delete
       if (searchQuery) {
         const namespace = scopeToNamespace(parseScope(scopeStr));
+
+        // Write permission check
+        if (!isScopeWritable(actorId, namespace, config.scopes)) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
+            details: { deleted: false, error: "permission_denied" },
+          };
+        }
+
         try {
           const records = await client.retrieveMemoryRecords({
             query: searchQuery,

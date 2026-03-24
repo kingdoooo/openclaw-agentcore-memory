@@ -1,7 +1,8 @@
 import type { AgentCoreClient } from "../client.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import type { PluginConfig } from "../config.js";
+import { parseScope, scopeToNamespace, isScopeWritable } from "../scopes.js";
 
-export function createShareTool(client: AgentCoreClient) {
+export function createShareTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
   return {
     name: "agentcore_share",
     label: "AgentCore Share",
@@ -51,9 +52,22 @@ export function createShareTool(client: AgentCoreClient) {
         };
       }
 
+      const actorId = getActorId();
       const targetNamespaces = targetScopes.map((s) =>
         scopeToNamespace(parseScope(s)),
       );
+
+      // Check write permission for all targets
+      const deniedScopes = targetScopes.filter((s, i) =>
+        !isScopeWritable(actorId, targetNamespaces[i], config.scopes),
+      );
+      if (deniedScopes.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ shared: false, error: `Target scopes not in your writable namespaces: ${deniedScopes.join(", ")}. Configure scopes.writeAccess to grant access.` }) }],
+          details: { shared: false, error: "permission_denied" },
+        };
+      }
+
       const allRecordIds: string[] = [];
       const failed: string[] = [];
 

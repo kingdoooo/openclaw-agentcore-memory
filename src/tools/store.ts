@@ -1,7 +1,8 @@
 import type { AgentCoreClient } from "../client.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import type { PluginConfig } from "../config.js";
+import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
 
-export function createStoreTool(client: AgentCoreClient) {
+export function createStoreTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
   return {
     name: "agentcore_store",
     label: "AgentCore Store",
@@ -45,6 +46,15 @@ export function createStoreTool(client: AgentCoreClient) {
 
       const scope = parseScope(scopeStr);
       const namespace = scopeToNamespace(scope);
+
+      // Write permission check
+      const actorId = getActorId();
+      if (!isScopeWritable(actorId, namespace, config.scopes)) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ stored: false, error: `Scope '${scopeToString(scope)}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
+          details: { stored: false, error: "permission_denied" },
+        };
+      }
 
       try {
         const result = await client.batchCreateRecords([

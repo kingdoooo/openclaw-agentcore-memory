@@ -1,10 +1,11 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToNamespace } from "../scopes.js";
+import { parseScope, scopeToNamespace, scopeToSearchNamespaces, scopeToString, isScopeReadable, buildStrategyNamespaces, STRATEGY_PREFIX_MAP } from "../scopes.js";
 
 export function createStatsTool(
   client: AgentCoreClient,
   config: PluginConfig,
+  getActorId: () => string,
 ) {
   return {
     name: "agentcore_stats",
@@ -22,30 +23,94 @@ export function createStatsTool(
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
       const scopeStr = (params.scope as string) ?? "global";
-      const namespace = scopeToNamespace(parseScope(scopeStr));
+      const scope = parseScope(scopeStr);
+      const namespace = scopeToNamespace(scope);
+      const allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
+
+      // Permission check
+      const actorId = getActorId();
+      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode);
+      if (!readCheck.allowed) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
+          details: { error: "permission_denied" },
+        };
+      }
 
       try {
         const strategyCounts: Record<string, number> = {};
         let cacheHit = false;
 
-        for (const strategy of config.strategies) {
-          const cacheKey = `${namespace}:${strategy}`;
+        if (scope.kind === "agent" && scope.id) {
+          // For agent scopes: iterate strategy namespaces
+          const strategyNs = buildStrategyNamespaces(scope.id, config.namespaceMode);
+          // Add summary namespace
+          const summaryNs = config.namespaceMode === "shared"
+            ? "/summary"
+            : `/summary/${scope.id}`;
+          const allStrategyNs = [...strategyNs, summaryNs];
+
+          for (const ns of allStrategyNs) {
+            // Derive strategy name from namespace prefix
+            const strategyName = Object.entries(STRATEGY_PREFIX_MAP)
+              .find(([, prefix]) => ns.startsWith(`/${prefix}`))
+              ?.[0] ?? ns;
+
+            const cacheKey = `${ns}:count`;
+            const cached = client.getStatsCached(cacheKey);
+            if (cached !== undefined) {
+              strategyCounts[strategyName] = cached.count;
+              cacheHit = true;
+              continue;
+            }
+            try {
+              const result = await client.listMemoryRecords({
+                namespace: ns,
+                maxResults: 1,
+              });
+              strategyCounts[strategyName] = result.records.length;
+              client.setStatsCache(cacheKey, result.records.length);
+            } catch {
+              strategyCounts[strategyName] = -1;
+            }
+          }
+
+          // Also count primary namespace
+          const primaryCacheKey = `${namespace}:count`;
+          const primaryCached = client.getStatsCached(primaryCacheKey);
+          if (primaryCached !== undefined) {
+            strategyCounts["primary"] = primaryCached.count;
+            cacheHit = true;
+          } else {
+            try {
+              const result = await client.listMemoryRecords({
+                namespace,
+                maxResults: 1,
+              });
+              strategyCounts["primary"] = result.records.length;
+              client.setStatsCache(primaryCacheKey, result.records.length);
+            } catch {
+              strategyCounts["primary"] = -1;
+            }
+          }
+        } else {
+          // For non-agent scopes: count total records in primary namespace
+          const cacheKey = `${namespace}:count`;
           const cached = client.getStatsCached(cacheKey);
           if (cached !== undefined) {
-            strategyCounts[strategy] = cached.count;
+            strategyCounts["total"] = cached.count;
             cacheHit = true;
-            continue;
-          }
-          try {
-            const result = await client.listMemoryRecords({
-              namespace,
-              strategyId: strategy,
-              maxResults: 1,
-            });
-            strategyCounts[strategy] = result.records.length;
-            client.setStatsCache(cacheKey, result.records.length);
-          } catch {
-            strategyCounts[strategy] = -1;
+          } else {
+            try {
+              const result = await client.listMemoryRecords({
+                namespace,
+                maxResults: 1,
+              });
+              strategyCounts["total"] = result.records.length;
+              client.setStatsCache(cacheKey, result.records.length);
+            } catch {
+              strategyCounts["total"] = -1;
+            }
           }
         }
 

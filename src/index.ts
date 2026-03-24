@@ -6,6 +6,8 @@ import {
   resolveAccessibleNamespaces,
   buildEpisodicNamespace,
   buildSessionNamespaces,
+  buildStrategyNamespaces,
+  STRATEGY_PREFIX_MAP,
 } from "./scopes.js";
 import { parseAgentIdFromSessionKey, parseSessionIdFromSessionKey } from "./identity.js";
 import { isNoise } from "./noise-filter.js";
@@ -53,6 +55,7 @@ const NOT_READY_RESPONSE = {
 let client: AgentCoreClient | null = null;
 let fileSync: FileSync | null = null;
 let ready = false;
+let currentActorId = "default";
 
 const plugin = {
   id: "memory-agentcore",
@@ -119,15 +122,17 @@ const plugin = {
 
     // --- Register all 8 tools (direct objects per OpenClaw convention) ---
 
+    const getActorId = () => currentActorId;
+
     const toolDefs = [
-      createRecallTool(client, config),
-      createStoreTool(client),
-      createForgetTool(client),
-      createCorrectTool(client),
-      createSearchTool(client, config),
-      createStatsTool(client, config),
-      createEpisodesTool(client, config),
-      createShareTool(client),
+      createRecallTool(client, config, getActorId),
+      createStoreTool(client, config, getActorId),
+      createForgetTool(client, config, getActorId),
+      createCorrectTool(client, config, getActorId),
+      createSearchTool(client, config, getActorId),
+      createStatsTool(client, config, getActorId),
+      createEpisodesTool(client, config, getActorId),
+      createShareTool(client, config, getActorId),
     ];
 
     for (const tool of toolDefs) {
@@ -142,130 +147,131 @@ const plugin = {
     }
 
     // --- Hook: Auto-Recall (before_prompt_build) ---
-    if (config.autoRecallTopK > 0) {
-      api.on("before_prompt_build", async (event: any, ctx: any) => {
-        if (!client || !ready) return;
+    // Always register — captures actorId for tool permission checks
+    api.on("before_prompt_build", async (event: any, ctx: any) => {
+      if (ctx.sessionKey) {
+        currentActorId = parseAgentIdFromSessionKey(ctx.sessionKey);
+      }
 
-        try {
-          const recallStart = Date.now();
-          const promptStr = extractText(event.prompt).trim();
-          if (!promptStr) return;
+      if (!client || !ready || config.autoRecallTopK <= 0) return;
 
-          // Adaptive retrieval gating
-          if (config.adaptiveRetrievalEnabled) {
-            const gate = shouldRetrieve(promptStr);
-            if (!gate.shouldRetrieve) {
-              api.logger.debug(
-                `[agentcore] [recall] gated: reason="${gate.reason}"`,
-              );
-              return;
-            }
-          }
+      try {
+        const recallStart = Date.now();
+        const promptStr = extractText(event.prompt).trim();
+        if (!promptStr) return;
 
-          // Resolve actor and namespaces
-          const actorId = ctx.sessionKey
-            ? parseAgentIdFromSessionKey(ctx.sessionKey)
-            : "default";
-          const namespaces = resolveAccessibleNamespaces(
-            actorId,
-            config.scopes,
-            config.namespaceMode,
-          );
-
-          // Add current session's summary/episodic namespaces
-          const sessionId = ctx.sessionId
-            ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
-          if (sessionId) {
-            const sessionNs = buildSessionNamespaces(actorId, sessionId, config.namespaceMode);
-            for (const ns of sessionNs) namespaces.push(ns);
-          }
-
-          const sid = sessionId ? sessionId.slice(0, 8) : "none";
-          api.logger.debug(
-            `[agentcore] [recall] start: actorId=${actorId}, sessionId=${sid}, promptLen=${promptStr.length}, namespaces=${namespaces.length} [${namespaces.join(", ")}]`,
-          );
-
-          // Parallel search across all accessible namespaces
-          const results = await Promise.allSettled(
-            namespaces.map((ns) =>
-              client!.retrieveMemoryRecords({
-                query: promptStr,
-                namespace: ns,
-                topK: config.autoRecallTopK,
-              }),
-            ),
-          );
-
-          // Log per-namespace results
-          let namespacesWithResults = 0;
-          const allRecords: MemoryRecordResult[] = [];
-          for (let i = 0; i < results.length; i++) {
-            const r = results[i];
-            const ns = namespaces[i];
-            if (r.status === "fulfilled") {
-              const count = r.value.length;
-              if (count > 0) {
-                namespacesWithResults++;
-                const scores = r.value.map((v) => (v.score ?? 0).toFixed(3)).join(", ");
-                api.logger.debug(`[agentcore] [recall] ns=${ns}: ${count} results (scores: ${scores})`);
-                for (const v of r.value) {
-                  const preview = v.content.replace(/\n/g, " ").slice(0, 120);
-                  api.logger.debug(`[agentcore] [recall]   [${(v.score ?? 0).toFixed(3)}] strategy=${v.memoryStrategyId} ns=[${v.namespaces.join(",")}] → ${preview}...`);
-                }
-              } else {
-                api.logger.debug(`[agentcore] [recall] ns=${ns}: 0 results`);
-              }
-              allRecords.push(...r.value);
-            } else {
-              api.logger.debug(`[agentcore] [recall] ns=${ns}: FAILED (${r.reason})`);
-            }
-          }
-
-          if (allRecords.length === 0) {
-            api.logger.info(
-              `[agentcore] [recall] done: 0 records from ${namespaces.length} namespaces, skipped injection, latencyMs=${Date.now() - recallStart}`,
+        // Adaptive retrieval gating
+        if (config.adaptiveRetrievalEnabled) {
+          const gate = shouldRetrieve(promptStr);
+          if (!gate.shouldRetrieve) {
+            api.logger.debug(
+              `[agentcore] [recall] gated: reason="${gate.reason}"`,
             );
             return;
           }
+        }
 
-          // Sort by score, take top K, then apply score gap filter
-          allRecords.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-          const topK = allRecords.slice(0, config.autoRecallTopK);
-          const topRecords = filterByScoreGap(topK, config);
+        // Resolve actor and namespaces (use captured currentActorId)
+        const actorId = currentActorId;
+        const namespaces = resolveAccessibleNamespaces(
+          actorId,
+          config.scopes,
+          config.namespaceMode,
+        );
 
-          api.logger.debug(
-            `[agentcore] [recall] merged: ${allRecords.length} total → topK=${topK.length} → afterScoreGap=${topRecords.length}`,
-          );
+        // Add current session's summary/episodic namespaces
+        const sessionId = ctx.sessionId
+          ?? (ctx.sessionKey ? parseSessionIdFromSessionKey(ctx.sessionKey) : undefined);
+        if (sessionId) {
+          const sessionNs = buildSessionNamespaces(actorId, sessionId, config.namespaceMode);
+          for (const ns of sessionNs) namespaces.push(ns);
+        }
 
-          // Format as XML block
-          const lines: string[] = ["<agentcore_memory>"];
-          for (const r of topRecords) {
-            const attrs: string[] = [];
-            if (config.showScores && r.score != null) {
-              attrs.push(`score="${r.score.toFixed(3)}"`);
+        const sid = sessionId ? sessionId.slice(0, 8) : "none";
+        api.logger.debug(
+          `[agentcore] [recall] start: actorId=${actorId}, sessionId=${sid}, promptLen=${promptStr.length}, namespaces=${namespaces.length} [${namespaces.join(", ")}]`,
+        );
+
+        // Parallel search across all accessible namespaces
+        const results = await Promise.allSettled(
+          namespaces.map((ns) =>
+            client!.retrieveMemoryRecords({
+              query: promptStr,
+              namespace: ns,
+              topK: config.autoRecallTopK,
+            }),
+          ),
+        );
+
+        // Log per-namespace results
+        let namespacesWithResults = 0;
+        const allRecords: MemoryRecordResult[] = [];
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i];
+          const ns = namespaces[i];
+          if (r.status === "fulfilled") {
+            const count = r.value.length;
+            if (count > 0) {
+              namespacesWithResults++;
+              const scores = r.value.map((v) => (v.score ?? 0).toFixed(3)).join(", ");
+              api.logger.debug(`[agentcore] [recall] ns=${ns}: ${count} results (scores: ${scores})`);
+              for (const v of r.value) {
+                const preview = v.content.replace(/\n/g, " ").slice(0, 120);
+                api.logger.debug(`[agentcore] [recall]   [${(v.score ?? 0).toFixed(3)}] strategy=${v.memoryStrategyId} ns=[${v.namespaces.join(",")}] → ${preview}...`);
+              }
+            } else {
+              api.logger.debug(`[agentcore] [recall] ns=${ns}: 0 results`);
             }
-            attrs.push(
-              `date="${r.createdAt.toISOString().split("T")[0]}"`,
-            );
-            attrs.push(`strategy="${r.memoryStrategyId}"`);
-            lines.push(`<memory ${attrs.join(" ")}>`);
-            lines.push(r.content);
-            lines.push("</memory>");
+            allRecords.push(...r.value);
+          } else {
+            api.logger.debug(`[agentcore] [recall] ns=${ns}: FAILED (${r.reason})`);
           }
-          lines.push("</agentcore_memory>");
+        }
 
-          const topScore = topRecords.length > 0 ? (topRecords[0].score ?? 0).toFixed(3) : "N/A";
+        if (allRecords.length === 0) {
           api.logger.info(
-            `[agentcore] [recall] done: injected ${topRecords.length} records from ${namespaces.length} namespaces (${namespacesWithResults}/${namespaces.length} had results), topScore=${topScore}, latencyMs=${Date.now() - recallStart}`,
+            `[agentcore] [recall] done: 0 records from ${namespaces.length} namespaces, skipped injection, latencyMs=${Date.now() - recallStart}`,
           );
-
-          return { prependContext: lines.join("\n") };
-        } catch (err) {
-          api.logger.warn(`[agentcore] [recall] error: ${err}`);
           return;
         }
-      });
-    }
+
+        // Sort by score, take top K, then apply score gap filter
+        allRecords.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+        const topK = allRecords.slice(0, config.autoRecallTopK);
+        const topRecords = filterByScoreGap(topK, config);
+
+        api.logger.debug(
+          `[agentcore] [recall] merged: ${allRecords.length} total → topK=${topK.length} → afterScoreGap=${topRecords.length}`,
+        );
+
+        // Format as XML block
+        const lines: string[] = ["<agentcore_memory>"];
+        for (const r of topRecords) {
+          const attrs: string[] = [];
+          if (config.showScores && r.score != null) {
+            attrs.push(`score="${r.score.toFixed(3)}"`);
+          }
+          attrs.push(
+            `date="${r.createdAt.toISOString().split("T")[0]}"`,
+          );
+          attrs.push(`strategy="${r.memoryStrategyId}"`);
+          lines.push(`<memory ${attrs.join(" ")}>`);
+          lines.push(r.content);
+          lines.push("</memory>");
+        }
+        lines.push("</agentcore_memory>");
+
+        const topScore = topRecords.length > 0 ? (topRecords[0].score ?? 0).toFixed(3) : "N/A";
+        api.logger.info(
+          `[agentcore] [recall] done: injected ${topRecords.length} records from ${namespaces.length} namespaces (${namespacesWithResults}/${namespaces.length} had results), topScore=${topScore}, latencyMs=${Date.now() - recallStart}`,
+        );
+
+        return { prependContext: lines.join("\n") };
+      } catch (err) {
+        api.logger.warn(`[agentcore] [recall] error: ${err}`);
+        return;
+      }
+    });
 
     // --- Hook: agent_end (file sync + auto-capture) - fire-and-forget ---
     api.on("agent_end", async (event: any, ctx: any) => {
@@ -472,7 +478,6 @@ const plugin = {
             "Scope (default: global)",
             "global",
           )
-          .option("--strategy <strategy>", "Filter by strategy")
           .option("-n, --max <n>", "Max results", "20")
           .action(async (opts: unknown) => {
             if (!client) {
@@ -481,13 +486,11 @@ const plugin = {
             }
             const o = opts as {
               scope: string;
-              strategy?: string;
               max: string;
             };
             const namespace = scopeToNamespace(parseScope(o.scope));
             const result = await client.listMemoryRecords({
               namespace,
-              strategyId: o.strategy,
               maxResults: Number(o.max),
             });
 
@@ -587,7 +590,6 @@ const plugin = {
               query: q,
               namespace,
               topK: Number(o.topK),
-              strategyId: "EPISODIC",
             });
 
             if (records.length === 0) {
@@ -619,23 +621,56 @@ const plugin = {
               return;
             }
             const o = opts as { scope: string };
-            const namespace = scopeToNamespace(parseScope(o.scope));
+            const scope = parseScope(o.scope);
+            const namespace = scopeToNamespace(scope);
             console.log(`Memory Stats for ${namespace}`);
 
-            for (const strategy of config.strategies) {
+            if (scope.kind === "agent" && scope.id) {
+              // For agent scopes: iterate strategy namespaces
+              const strategyNs = buildStrategyNamespaces(scope.id, config.namespaceMode);
+              const summaryNs = config.namespaceMode === "shared"
+                ? "/summary"
+                : `/summary/${scope.id}`;
+              const allStrategyNs = [...strategyNs, summaryNs];
+
+              for (const ns of allStrategyNs) {
+                const strategyName = Object.entries(STRATEGY_PREFIX_MAP)
+                  .find(([, prefix]) => ns.startsWith(`/${prefix}`))
+                  ?.[0] ?? ns;
+                try {
+                  const result = await client.listMemoryRecords({
+                    namespace: ns,
+                    maxResults: 1,
+                  });
+                  const indicator = result.records.length > 0 ? "has records" : "empty";
+                  console.log(`  ${strategyName}: ${indicator}`);
+                } catch {
+                  console.log(`  ${strategyName}: error`);
+                }
+              }
+
+              // Primary namespace
               try {
                 const result = await client.listMemoryRecords({
                   namespace,
-                  strategyId: strategy,
                   maxResults: 1,
                 });
-                const indicator =
-                  result.records.length > 0
-                    ? "has records"
-                    : "empty";
-                console.log(`  ${strategy}: ${indicator}`);
+                const indicator = result.records.length > 0 ? "has records" : "empty";
+                console.log(`  primary (${namespace}): ${indicator}`);
               } catch {
-                console.log(`  ${strategy}: error`);
+                console.log(`  primary (${namespace}): error`);
+              }
+            } else {
+              // For non-agent scopes: count total
+              try {
+                const result = await client.listMemoryRecords({
+                  namespace,
+                  maxResults: 1,
+                });
+                const indicator = result.records.length > 0 ? "has records" : "empty";
+                console.log(`  total: ${indicator}`);
+              } catch {
+                console.log(`  total: error`);
               }
             }
           });

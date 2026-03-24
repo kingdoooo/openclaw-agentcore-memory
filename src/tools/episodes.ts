@@ -1,11 +1,12 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { buildEpisodicNamespace, buildStrategyNamespaces } from "../scopes.js";
+import { buildEpisodicNamespace, buildStrategyNamespaces, isScopeReadable } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createEpisodesTool(
   client: AgentCoreClient,
   config: PluginConfig,
+  getActorId: () => string,
 ) {
   return {
     name: "agentcore_episodes",
@@ -48,6 +49,16 @@ export function createEpisodesTool(
         : ["/episodic"];
       const uniqueNamespaces = [...new Set([namespace, ...episodicStrategyNs])];
 
+      // Permission check
+      const currentActorId = getActorId();
+      const readCheck = isScopeReadable(currentActorId, uniqueNamespaces, config.scopes, config.namespaceMode);
+      if (!readCheck.allowed) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: `Episodic namespaces for '${actorId ?? "default"}' are not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
+          details: { error: "permission_denied" },
+        };
+      }
+
       try {
         const allResults = await Promise.allSettled(
           uniqueNamespaces.map((ns) =>
@@ -55,7 +66,6 @@ export function createEpisodesTool(
               query,
               namespace: ns,
               topK,
-              strategyId: "EPISODIC",
             }),
           ),
         );

@@ -1,4 +1,6 @@
 import type { AgentCoreClient } from "../client.js";
+import type { PluginConfig } from "../config.js";
+import { isScopeWritable } from "../scopes.js";
 
 function isRetryable(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -26,7 +28,7 @@ async function retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-export function createCorrectTool(client: AgentCoreClient) {
+export function createCorrectTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
   return {
     name: "agentcore_correct",
     label: "AgentCore Correct",
@@ -49,42 +51,42 @@ export function createCorrectTool(client: AgentCoreClient) {
     async execute(_toolCallId: string, params: Record<string, unknown>) {
       const recordId = params.record_id as string;
       const newContent = params.new_content as string;
+      const actorId = getActorId();
 
       try {
-        // Try batch update with exponential backoff for transient errors
-        const updateResult = await retryWithBackoff(() =>
-          client.batchUpdateRecords([
-            { memoryRecordId: recordId, content: newContent },
-          ]),
-        );
-
-        if (updateResult.successful.length > 0) {
-          const data = {
-            corrected: true,
-            method: "update",
-            recordId,
-          };
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-            details: { corrected: true, method: "update" },
-          };
-        }
-
-        // Update failed — check if record exists
+        // Check if record exists and verify write permission
         const existing = await client.getMemoryRecord(recordId);
         if (existing) {
+          const writable = existing.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes));
+          if (!writable) {
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ corrected: false, error: `Record '${recordId}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
+              details: { corrected: false, error: "permission_denied" },
+            };
+          }
+
+          // Try batch update with exponential backoff for transient errors
+          const updateResult = await retryWithBackoff(() =>
+            client.batchUpdateRecords([
+              { memoryRecordId: recordId, content: newContent },
+            ]),
+          );
+
+          if (updateResult.successful.length > 0) {
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ corrected: true, method: "update", recordId }, null, 2) }],
+              details: { corrected: true, method: "update" },
+            };
+          }
+
           // Record exists but update failed for unknown reason
-          const data = {
-            corrected: false,
-            error: `Update failed: ${updateResult.failed.join(", ")}`,
-          };
           return {
-            content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+            content: [{ type: "text" as const, text: JSON.stringify({ corrected: false, error: `Update failed: ${updateResult.failed.join(", ")}` }, null, 2) }],
             details: { corrected: false },
           };
         }
 
-        // Record not found — fallback to create
+        // Record not found — fallback to create in /global (always writable)
         const createResult = await client.batchCreateRecords([
           {
             content: newContent,
