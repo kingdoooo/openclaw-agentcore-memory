@@ -40,6 +40,7 @@ export function createStatsTool(
       try {
         const strategyCounts: Record<string, number> = {};
         let cacheHit = false;
+        const accessibleNs = new Set(readCheck.filteredNamespaces);
 
         if (scope.kind === "agent" && scope.id) {
           // For agent scopes: iterate strategy namespaces
@@ -48,7 +49,7 @@ export function createStatsTool(
           const summaryNs = config.namespaceMode === "shared"
             ? "/summary"
             : `/summary/${scope.id}`;
-          const allStrategyNs = [...strategyNs, summaryNs];
+          const allStrategyNs = [...strategyNs, summaryNs].filter(ns => accessibleNs.has(ns));
 
           for (const ns of allStrategyNs) {
             // Derive strategy name from namespace prefix
@@ -75,22 +76,24 @@ export function createStatsTool(
             }
           }
 
-          // Also count primary namespace
-          const primaryCacheKey = `${namespace}:count`;
-          const primaryCached = client.getStatsCached(primaryCacheKey);
-          if (primaryCached !== undefined) {
-            strategyCounts["primary"] = primaryCached.count;
-            cacheHit = true;
-          } else {
-            try {
-              const result = await client.listMemoryRecords({
-                namespace,
-                maxResults: 1,
-              });
-              strategyCounts["primary"] = result.records.length;
-              client.setStatsCache(primaryCacheKey, result.records.length);
-            } catch {
-              strategyCounts["primary"] = -1;
+          // Also count primary namespace (if accessible)
+          if (accessibleNs.has(namespace)) {
+            const primaryCacheKey = `${namespace}:count`;
+            const primaryCached = client.getStatsCached(primaryCacheKey);
+            if (primaryCached !== undefined) {
+              strategyCounts["primary"] = primaryCached.count;
+              cacheHit = true;
+            } else {
+              try {
+                const result = await client.listMemoryRecords({
+                  namespace,
+                  maxResults: 1,
+                });
+                strategyCounts["primary"] = result.records.length;
+                client.setStatsCache(primaryCacheKey, result.records.length);
+              } catch {
+                strategyCounts["primary"] = -1;
+              }
             }
           }
         } else {

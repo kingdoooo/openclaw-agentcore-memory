@@ -187,11 +187,13 @@ export function isScopeReadable(
   requestedNamespaces: string[],
   scopesConfig: ScopesConfig,
   mode: NamespaceMode,
-): { allowed: boolean; denied: string[] } {
-  if (!hasReadEnforcement(scopesConfig)) return { allowed: true, denied: [] };
+): { allowed: boolean; filteredNamespaces: string[] } {
+  if (!hasReadEnforcement(scopesConfig)) {
+    return { allowed: true, filteredNamespaces: requestedNamespaces };
+  }
   const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode));
-  const denied = requestedNamespaces.filter(ns => !accessible.has(ns));
-  return { allowed: denied.length === 0, denied };
+  const filtered = requestedNamespaces.filter(ns => accessible.has(ns));
+  return { allowed: filtered.length > 0, filteredNamespaces: filtered };
 }
 
 export function isScopeWritable(

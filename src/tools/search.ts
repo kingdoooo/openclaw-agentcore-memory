@@ -46,7 +46,7 @@ export function createSearchTool(client: AgentCoreClient, config: PluginConfig, 
       }
 
       // Filter namespaces by strategy instead of passing strategyId to AWS
-      const namespaces = filterNamespacesByStrategy(allNamespaces, strategy);
+      const namespaces = filterNamespacesByStrategy(readCheck.filteredNamespaces, strategy);
 
       try {
         const allResults = await Promise.allSettled(
