@@ -5,22 +5,38 @@ export type ScopeKind = "global" | "agent" | "project" | "user" | "custom";
 export interface Scope {
   kind: ScopeKind;
   id?: string;
+  strategy?: string;
 }
+
+const VALID_STRATEGIES = ["semantic", "episodic", "preferences", "summary", "primary"] as const;
 
 export function parseScope(scope: string): Scope {
   if (scope === "global") return { kind: "global" };
-  const colonIdx = scope.indexOf(":");
-  if (colonIdx === -1) return { kind: "global" };
-  const kind = scope.slice(0, colonIdx);
-  const id = scope.slice(colonIdx + 1);
+  const parts = scope.split(":");
+  if (parts.length < 2) return { kind: "global" };
+  const kind = parts[0];
   if (!["agent", "project", "user", "custom"].includes(kind)) {
     return { kind: "global" };
+  }
+  const id = parts[1];
+  const strategy = parts[2];
+  if (strategy) {
+    if ((VALID_STRATEGIES as readonly string[]).includes(strategy)) {
+      return { kind: kind as ScopeKind, id, strategy };
+    }
+    return { kind: "global" }; // invalid strategy → least privilege
   }
   return { kind: kind as ScopeKind, id };
 }
 
 function sanitizeId(input: string): string {
   return input.replace(/[^a-zA-Z0-9_\-.]/g, "_");
+}
+
+function strategyToNamespace(strategy: string, id: string, mode: NamespaceMode): string {
+  if (strategy === "primary") return `/agents/${sanitizeId(id)}`;
+  if (mode === "shared") return `/${strategy}`;
+  return `/${strategy}/${sanitizeId(id)}`;
 }
 
 export function scopeToNamespace(scope: Scope): string {
@@ -80,18 +96,28 @@ export function resolveAccessibleNamespaces(
   const ns = new Set<string>();
   ns.add("/global");
 
-  // Current agent + its strategy namespaces
+  // Current agent + its strategy namespaces + summary
   ns.add(scopeToNamespace({ kind: "agent", id: actorId }));
   for (const sn of buildStrategyNamespaces(actorId, mode)) ns.add(sn);
+  const selfSummary = mode === "shared" ? "/summary" : `/summary/${sanitizeId(actorId)}`;
+  ns.add(selfSummary);
 
-  // Authorized scopes — only agent scopes get strategy expansion
+  // Authorized scopes — agent scopes get strategy expansion
   const accessList = scopesConfig.agentAccess[actorId];
   if (accessList) {
     for (const scopeStr of accessList) {
       const scope = parseScope(scopeStr);
-      ns.add(scopeToNamespace(scope));
-      if (scope.kind === "agent" && scope.id) {
-        for (const sn of buildStrategyNamespaces(scope.id, mode)) ns.add(sn);
+      if (scope.kind === "agent" && scope.id && scope.strategy) {
+        // Strategy-specific access: only the single namespace
+        ns.add(strategyToNamespace(scope.strategy, scope.id, mode));
+      } else {
+        // Full scope access (backward compatible)
+        ns.add(scopeToNamespace(scope));
+        if (scope.kind === "agent" && scope.id) {
+          for (const sn of buildStrategyNamespaces(scope.id, mode)) ns.add(sn);
+          const summaryNs = mode === "shared" ? "/summary" : `/summary/${sanitizeId(scope.id)}`;
+          ns.add(summaryNs);
+        }
       }
     }
   }
@@ -102,6 +128,7 @@ export function resolveAccessibleNamespaces(
 export function resolveWritableNamespaces(
   actorId: string,
   scopesConfig: ScopesConfig,
+  mode: NamespaceMode = "per-agent",
 ): string[] {
   const namespaces = ["/global"];
   const agentNs = scopeToNamespace({ kind: "agent", id: actorId });
@@ -110,7 +137,13 @@ export function resolveWritableNamespaces(
   const writeList = scopesConfig.writeAccess[actorId];
   if (writeList) {
     for (const scopeStr of writeList) {
-      const ns = scopeToNamespace(parseScope(scopeStr));
+      const scope = parseScope(scopeStr);
+      let ns: string;
+      if (scope.kind === "agent" && scope.id && scope.strategy) {
+        ns = strategyToNamespace(scope.strategy, scope.id, mode);
+      } else {
+        ns = scopeToNamespace(scope);
+      }
       if (!namespaces.includes(ns)) namespaces.push(ns);
     }
   }
@@ -165,9 +198,10 @@ export function isScopeWritable(
   actorId: string,
   requestedNamespace: string,
   scopesConfig: ScopesConfig,
+  mode: NamespaceMode = "per-agent",
 ): boolean {
   if (!hasWriteEnforcement(scopesConfig)) return true;
-  return resolveWritableNamespaces(actorId, scopesConfig).includes(requestedNamespace);
+  return resolveWritableNamespaces(actorId, scopesConfig, mode).includes(requestedNamespace);
 }
 
 // --- Strategy-to-namespace prefix mapping ---
