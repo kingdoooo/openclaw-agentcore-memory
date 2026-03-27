@@ -147,7 +147,7 @@ openclaw agentcore-status
 | `autoCaptureMinLength` | `30` | Min combined message length for capture |
 | `noiseFilterEnabled` | `true` | Filter greetings/heartbeats before capture |
 | `adaptiveRetrievalEnabled` | `true` | Skip trivial query retrieval |
-| `namespaceMode` | `per-agent` | Strategy namespace isolation: `per-agent` = `/semantic/{actorId}`, `shared` = flat `/semantic` |
+| `namespaceMode` | `per-agent` | Search prefix granularity: `per-agent` = `/semantic/{actorId}` (isolated), `shared` = `/semantic` (all agents visible via prefix search) |
 | `eventExpiryDays` | `90` | Short-term event retention |
 | `showScores` | `false` | Include similarity scores in recalled memories |
 | `fileSyncEnabled` | `true` | Enable file sync to AgentCore |

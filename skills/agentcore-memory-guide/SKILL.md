@@ -37,7 +37,7 @@ To verify the plugin is working, use `agentcore-memory-validation` (19 automated
 /custom/<id>               — Freeform.
 ```
 
-**Default isolation**: Each agent can only access `/global` + its own namespaces. Cross-agent access is denied unless explicitly configured via `scopes`.
+**Default isolation** (`per-agent` mode, default): Each agent can only access `/global` + its own namespaces. Cross-agent access is denied unless explicitly configured via `scopes`. In `shared` mode, search uses shorter prefixes (e.g. `/semantic` instead of `/semantic/{id}`), so all agents' data is naturally visible — permissions still enforce but paths overlap.
 
 ### Scope Parameter Syntax
 
@@ -79,8 +79,8 @@ The `before_prompt_build` hook automatically searches these namespaces in parall
 1. `/global` — always
 2. `/agents/<current-agent-id>` — always
 3. Strategy namespaces for current agent (controlled by `namespaceMode`):
-   - `per-agent`: `/semantic/<id>`, `/episodic/<id>`, `/preferences/<id>`, `/summary/<id>`
-   - `shared`: `/semantic`, `/episodic`, `/preferences`, `/summary`
+   - `per-agent`: `/semantic/<id>`, `/episodic/<id>`, `/preferences/<id>`, `/summary/<id>` (prefix-matches only own data)
+   - `shared`: `/semantic`, `/episodic`, `/preferences`, `/summary` (prefix-matches all agents' data)
 4. Authorized agents' namespaces from `scopes.agentAccess` — **without this config, only own namespaces are searched**
 
 Results are merged, deduplicated, sorted by score, filtered by score gap detection, and injected as `<agentcore_memory>` context before each turn.
@@ -147,7 +147,7 @@ All settings have defaults. Configure in `openclaw.json` under `plugins.entries.
 | `autoCaptureMinLength` | `30` | `AGENTCORE_AUTO_CAPTURE_MIN_LENGTH` | Min combined message length |
 | `noiseFilterEnabled` | `true` | `AGENTCORE_NOISE_FILTER_ENABLED` | Filter greetings/heartbeats |
 | `adaptiveRetrievalEnabled` | `true` | `AGENTCORE_ADAPTIVE_RETRIEVAL_ENABLED` | Skip trivial query retrieval |
-| `namespaceMode` | `"per-agent"` | `AGENTCORE_NAMESPACE_MODE` | Strategy namespace isolation: `per-agent` = `/semantic/{actorId}`, `shared` = flat `/semantic`. Must match AWS Memory namespace templates |
+| `namespaceMode` | `"per-agent"` | `AGENTCORE_NAMESPACE_MODE` | Search prefix granularity: `per-agent` = `/semantic/{actorId}` (only own data), `shared` = `/semantic` (prefix-matches all agents). AWS always stores at `/semantic/{actorId}` — this setting controls search scope, not storage |
 | `showScores` | `false` | `AGENTCORE_SHOW_SCORES` | Show similarity scores |
 | `scoreGapEnabled` | `true` | `AGENTCORE_SCORE_GAP_ENABLED` | Score gap detection filter |
 | `scoreGapMultiplier` | `2.0` | `AGENTCORE_SCORE_GAP_MULTIPLIER` | Gap sensitivity (higher=lenient) |

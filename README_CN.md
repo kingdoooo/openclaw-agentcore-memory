@@ -147,7 +147,7 @@ openclaw agentcore-status
 | `autoCaptureMinLength` | `30` | 触发捕获的最小消息长度 |
 | `noiseFilterEnabled` | `true` | 过滤问候/心跳等噪声 |
 | `adaptiveRetrievalEnabled` | `true` | 跳过简单查询的检索 |
-| `namespaceMode` | `per-agent` | 策略 namespace 隔离模式：`per-agent` = `/semantic/{actorId}`，`shared` = 扁平 `/semantic` |
+| `namespaceMode` | `per-agent` | 搜索前缀粒度：`per-agent` = `/semantic/{actorId}`（隔离），`shared` = `/semantic`（前缀匹配所有 agent 数据） |
 | `eventExpiryDays` | `90` | 短期事件保留天数 |
 | `showScores` | `false` | 召回时显示相似度分数 |
 | `fileSyncEnabled` | `true` | 启用文件同步到 AgentCore |
