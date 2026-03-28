@@ -94,12 +94,19 @@ export function resolveAccessibleNamespaces(
   actorId: string,
   scopesConfig: ScopesConfig,
   mode: NamespaceMode,
+  peerId?: string,
 ): string[] {
   const ns = new Set<string>();
   ns.add("/global");
 
-  // Current agent + its strategy namespaces + summary
-  ns.add(scopeToNamespace({ kind: "agent", id: actorId }));
+  // Primary namespace: /users/{peerId} when DM, /agents/{actorId} otherwise
+  if (peerId) {
+    ns.add(scopeToNamespace({ kind: "user", id: peerId }));
+  } else {
+    ns.add(scopeToNamespace({ kind: "agent", id: actorId }));
+  }
+
+  // Strategy namespaces use actorId (= peerId in DM sessions)
   for (const sn of buildStrategyNamespaces(actorId, mode)) ns.add(sn);
   const selfSummary = mode === "shared" ? "/summary" : `/summary/${sanitizeId(actorId)}`;
   ns.add(selfSummary);
@@ -131,10 +138,15 @@ export function resolveWritableNamespaces(
   actorId: string,
   scopesConfig: ScopesConfig,
   mode: NamespaceMode = "per-agent",
+  peerId?: string,
 ): string[] {
   const namespaces = ["/global"];
-  const agentNs = scopeToNamespace({ kind: "agent", id: actorId });
-  namespaces.push(agentNs);
+  // Primary namespace: /users/{peerId} when DM, /agents/{actorId} otherwise
+  if (peerId) {
+    namespaces.push(scopeToNamespace({ kind: "user", id: peerId }));
+  } else {
+    namespaces.push(scopeToNamespace({ kind: "agent", id: actorId }));
+  }
 
   const writeList = scopesConfig.writeAccess[actorId];
   if (writeList) {
@@ -184,17 +196,35 @@ function hasWriteEnforcement(_sc: ScopesConfig): boolean {
   return true;
 }
 
+/** Extract wildcard prefixes from agentAccess config.
+ *  "user:*" → "/users/" prefix match. Extensible for future patterns.
+ */
+export function resolveWildcardPrefixes(scopesConfig: ScopesConfig, actorId: string): string[] {
+  const prefixes: string[] = [];
+  const accessList = scopesConfig.agentAccess[actorId];
+  if (accessList) {
+    for (const scopeStr of accessList) {
+      if (scopeStr === "user:*") prefixes.push("/users/");
+    }
+  }
+  return prefixes;
+}
+
 export function isScopeReadable(
   actorId: string,
   requestedNamespaces: string[],
   scopesConfig: ScopesConfig,
   mode: NamespaceMode,
+  peerId?: string,
 ): { allowed: boolean; filteredNamespaces: string[] } {
   if (!hasReadEnforcement(scopesConfig)) {
     return { allowed: true, filteredNamespaces: requestedNamespaces };
   }
-  const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode));
-  const filtered = requestedNamespaces.filter(ns => accessible.has(ns));
+  const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode, peerId));
+  const wildcardPrefixes = resolveWildcardPrefixes(scopesConfig, actorId);
+  const filtered = requestedNamespaces.filter(ns =>
+    accessible.has(ns) || wildcardPrefixes.some(prefix => ns.startsWith(prefix))
+  );
   return { allowed: filtered.length > 0, filteredNamespaces: filtered };
 }
 
@@ -203,9 +233,13 @@ export function isScopeWritable(
   requestedNamespace: string,
   scopesConfig: ScopesConfig,
   mode: NamespaceMode = "per-agent",
+  peerId?: string,
 ): boolean {
   if (!hasWriteEnforcement(scopesConfig)) return true;
-  return resolveWritableNamespaces(actorId, scopesConfig, mode).includes(requestedNamespace);
+  const writable = resolveWritableNamespaces(actorId, scopesConfig, mode, peerId);
+  const wildcardPrefixes = resolveWildcardPrefixes(scopesConfig, actorId);
+  return writable.includes(requestedNamespace) ||
+    wildcardPrefixes.some(prefix => requestedNamespace.startsWith(prefix));
 }
 
 // --- Strategy-to-namespace prefix mapping ---

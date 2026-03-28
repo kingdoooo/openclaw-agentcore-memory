@@ -1,12 +1,13 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
+import { parseScope, scopeToNamespace, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createRecallTool(
   client: AgentCoreClient,
   config: PluginConfig,
   getActorId: () => string,
+  getPeerId?: () => string | undefined,
 ) {
   return {
     name: "agentcore_recall",
@@ -52,9 +53,16 @@ export function createRecallTool(
       const scope = parseScope(scopeStr);
       const allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
 
+      // When peerId exists and user didn't specify a scope, also search user namespace
+      const peerId = getPeerId?.();
+      if (peerId && !params.scope) {
+        const userNs = scopeToNamespace({ kind: "user", id: peerId });
+        if (!allNamespaces.includes(userNs)) allNamespaces.push(userNs);
+      }
+
       // Permission check
       const actorId = getActorId();
-      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode);
+      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode, peerId);
       if (!readCheck.allowed) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],

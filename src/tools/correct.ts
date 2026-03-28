@@ -28,7 +28,7 @@ async function retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-export function createCorrectTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
+export function createCorrectTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
   return {
     name: "agentcore_correct",
     label: "AgentCore Correct",
@@ -57,7 +57,8 @@ export function createCorrectTool(client: AgentCoreClient, config: PluginConfig,
         // Check if record exists and verify write permission
         const existing = await client.getMemoryRecord(recordId);
         if (existing) {
-          const writable = existing.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes));
+          const peerId = getPeerId?.();
+          const writable = existing.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes, config.namespaceMode, peerId));
           if (!writable) {
             return {
               content: [{ type: "text" as const, text: JSON.stringify({ corrected: false, error: `Record '${recordId}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],

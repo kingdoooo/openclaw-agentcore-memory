@@ -2,7 +2,7 @@ import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace, isScopeWritable } from "../scopes.js";
 
-export function createShareTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
+export function createShareTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
   return {
     name: "agentcore_share",
     label: "AgentCore Share",
@@ -58,8 +58,9 @@ export function createShareTool(client: AgentCoreClient, config: PluginConfig, g
       );
 
       // Check write permission for all targets
+      const peerId = getPeerId?.();
       const deniedScopes = targetScopes.filter((s, i) =>
-        !isScopeWritable(actorId, targetNamespaces[i], config.scopes),
+        !isScopeWritable(actorId, targetNamespaces[i], config.scopes, config.namespaceMode, peerId),
       );
       if (deniedScopes.length > 0) {
         return {

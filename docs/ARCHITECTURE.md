@@ -688,3 +688,63 @@ for (const namespace of targetNamespaces) {
 | OpenClaw 上下文文档 | Context Engine 概念（"How it works" / "System prompt addition" 等节） | 2 |
 | lossless-claw `architecture.md` | DAG 摘要架构 | 4.1, 4.2, 4.3 |
 | lossless-claw `agent-tools.md` | Agent 工具文档 | 4.1, 4.2, 4.3 |
+
+---
+
+## 7. 面客模式：用户级记忆隔离
+
+### 7.1 actorId 语义
+
+AWS AgentCore 的设计意图是 `actorId` = 终端用户。memory-agentcore 遵循这一设计：
+
+```
+actorId = peerId ?? agentId
+```
+
+| 条件 | actorId | 记忆维度 | 场景 |
+|------|---------|---------|------|
+| sessionKey 无 `:dm:` 段 | agentId | 按 Agent | 员工助手 / 群聊 |
+| sessionKey 有 `:dm:<peerId>` | **peerId** | **按客户** | 面客 DM |
+
+peerId 从 sessionKey 通过正则 `:dm:([^:]+)$` 自动提取。无需配置开关——行为完全由 OpenClaw 的 `dmScope` 配置决定。
+
+### 7.2 命名空间变化
+
+**无 peerId 时（员工助手，现有行为）**：
+- 主命名空间：`/agents/{agentId}`
+- 策略命名空间：`/semantic/{agentId}`, `/episodic/{agentId}`, `/preferences/{agentId}`
+
+**有 peerId 时（面客 DM）**：
+- 主命名空间：**`/users/{peerId}`**（非 `/agents/`，语义正确）
+- 策略命名空间：`/semantic/{peerId}`, `/episodic/{peerId}`, `/preferences/{peerId}`
+
+不同 Agent 服务同一客户时，actorId 相同 → 搜索和写入相同命名空间 → **天然跨 Agent 共享**。
+
+### 7.3 安全模型
+
+两层防线保障面客场景下的记忆安全：
+
+| 防线 | 负责方 | 防什么 |
+|------|--------|--------|
+| Gateway `tools.deny` | OpenClaw Gateway | 阻止 Agent 调用文件/命令等危险工具 |
+| `isScopeReadable/Writable` | memory-agentcore 代码 | 阻止访问当前 actorId 以外的命名空间 |
+
+权限检查是代码层面强制执行，prompt injection 无法绕过。peerId 信任链：Channel 身份 → OpenClaw sessionKey → 插件提取 → actorId。
+
+### 7.4 员工访问客户记忆
+
+员工 Agent（actorId = agentId）默认不包含 `/users/*` 命名空间。通过 `agentAccess` 配置 `user:*` 通配符授权：
+
+```json5
+{ "scopes": { "agentAccess": { "employee-agent": ["user:*"] } } }
+```
+
+`resolveWildcardPrefixes` 函数将 `user:*` 解析为 `/users/` 前缀匹配。
+
+### 7.5 sanitizeId 转换
+
+`sanitizeId` 将非 `[a-zA-Z0-9_\-.]` 字符替换为 `_`（幂等）：
+- `+8613800138000` → `_8613800138000`
+- `ou_alice123` → `ou_alice123`（不变）
+
+来源: `src/identity.ts:parsePeerIdFromSessionKey`, `src/scopes.ts:sanitizeId, resolveAccessibleNamespaces`

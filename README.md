@@ -33,6 +33,18 @@ This plugin **coexists** with memory-core — local memory still works offline, 
 - **File sync**: sync local documents to AgentCore for semantic search (default empty — bootstrap files already in prompt)
 - **On-demand memory deletion** via `agentcore_forget`
 - **Bilingual noise filter** (EN/ZH) and adaptive retrieval gating
+- **Customer-facing mode**: automatic per-customer memory isolation (`actorId = peerId ?? agentId`)
+
+### Deployment Modes
+
+| Mode | actorId | Memory dimension | When |
+|------|---------|-----------------|------|
+| Employee assistant (default) | agentId | Per agent | `dmScope: main` |
+| Customer-facing DM | **customer peerId** | **Per customer** | `dmScope: per-peer` |
+
+Customer-facing mode requires no extra config — the plugin auto-extracts peerId from the sessionKey. See **[Customer-Facing Guide](docs/CUSTOMER-FACING-GUIDE.zh-CN.md)** for details.
+
+**Security**: For customer-facing deployments, configure `tools.deny` (block file/command tools) and `sandbox`. The plugin enforces per-customer namespace isolation at the code level — prompt injection cannot bypass it.
 
 ## Prerequisites
 

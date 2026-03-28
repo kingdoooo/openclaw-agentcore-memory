@@ -2,7 +2,7 @@ import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
 
-export function createForgetTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
+export function createForgetTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
   return {
     name: "agentcore_forget",
     label: "AgentCore Forget",
@@ -44,13 +44,14 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
       const scopeStr = (params.scope as string) ?? "global";
       const purgeScope = (params.purge_scope as boolean) ?? false;
       const actorId = getActorId();
+      const peerId = getPeerId?.();
 
       // Purge entire scope
       if (purgeScope) {
         const namespace = scopeToNamespace(parseScope(scopeStr));
 
         // Write permission check
-        if (!isScopeWritable(actorId, namespace, config.scopes)) {
+        if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
             details: { deleted: false, error: "permission_denied" },
@@ -121,7 +122,7 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
             const result = lookups[i];
             if (result.status === "fulfilled" && result.value) {
               const record = result.value;
-              const writable = record.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes));
+              const writable = record.namespaces.some(ns => isScopeWritable(actorId, ns, config.scopes, config.namespaceMode, peerId));
               if (!writable) denied.push(recordIds[i]);
             }
             // If record not found or lookup failed, allow the delete attempt (will fail naturally)
@@ -152,7 +153,7 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
         const namespace = scopeToNamespace(parseScope(scopeStr));
 
         // Write permission check
-        if (!isScopeWritable(actorId, namespace, config.scopes)) {
+        if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
             details: { deleted: false, error: "permission_denied" },

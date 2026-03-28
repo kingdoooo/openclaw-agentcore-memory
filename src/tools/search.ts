@@ -2,7 +2,7 @@ import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
 
-export function createSearchTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
+export function createSearchTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
   return {
     name: "agentcore_search",
     label: "AgentCore Search",
@@ -37,7 +37,8 @@ export function createSearchTool(client: AgentCoreClient, config: PluginConfig, 
 
       // Permission check
       const actorId = getActorId();
-      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode);
+      const peerId = getPeerId?.();
+      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode, peerId);
       if (!readCheck.allowed) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],

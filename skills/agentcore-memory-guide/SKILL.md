@@ -218,6 +218,24 @@ openclaw agentcore-sync --actor <id>
 
 Manually trigger sync. Same logic as the automatic `agent_end` hook.
 
+## Customer-Facing Mode
+
+When OpenClaw's `dmScope` is set to `per-peer` or `per-channel-peer`, the plugin automatically switches to per-customer memory:
+
+- **actorId = peerId** (customer's phone number, Telegram ID, etc.)
+- Memories are extracted and stored per customer, not per agent
+- Different agents serving the same customer share memories naturally
+- Group chats (no `:dm:` segment) fall back to per-agent mode
+
+### Best Practices for Customer-Facing
+
+1. **Security**: Configure `tools.deny` to block `group:runtime`, `group:fs`, `group:automation`. Enable sandbox with `workspaceAccess: "none"`.
+2. **Employee access**: To let employee agents query customer memories, configure `agentAccess: { "employee-agent": ["user:*"] }`.
+3. **Manual store**: Agent can use `agentcore_store(scope="user:+86138xxx")` to explicitly save to a customer's namespace.
+4. **peerId sanitization**: Special chars like `+` are replaced with `_` in namespace paths (e.g., `+86138xxx` → `_86138xxx`).
+
+See [Customer-Facing Guide](../../docs/CUSTOMER-FACING-GUIDE.zh-CN.md) for full setup instructions.
+
 ## Runtime Troubleshooting
 
 | Problem | Cause | Fix |

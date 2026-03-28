@@ -2,7 +2,7 @@ import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
 
-export function createStoreTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string) {
+export function createStoreTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
   return {
     name: "agentcore_store",
     label: "AgentCore Store",
@@ -49,7 +49,8 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
 
       // Write permission check
       const actorId = getActorId();
-      if (!isScopeWritable(actorId, namespace, config.scopes)) {
+      const peerId = getPeerId?.();
+      if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ stored: false, error: `Scope '${scopeToString(scope)}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
           details: { stored: false, error: "permission_denied" },
@@ -67,6 +68,7 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
               scope: scopeStr,
               source: "manual",
               ...(tags.length > 0 ? { tags: JSON.stringify(tags) } : {}),
+              ...(peerId ? { userId: peerId } : {}),
             },
           },
         ]);

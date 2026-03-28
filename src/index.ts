@@ -9,7 +9,7 @@ import {
   buildStrategyNamespaces,
   STRATEGY_PREFIX_MAP,
 } from "./scopes.js";
-import { parseAgentIdFromSessionKey, parseSessionIdFromSessionKey } from "./identity.js";
+import { parseAgentIdFromSessionKey, parseSessionIdFromSessionKey, parsePeerIdFromSessionKey } from "./identity.js";
 import { isNoise } from "./noise-filter.js";
 import { shouldRetrieve } from "./adaptive-retrieval.js";
 import { filterByScoreGap } from "./score-filter.js";
@@ -56,6 +56,7 @@ let client: AgentCoreClient | null = null;
 let fileSync: FileSync | null = null;
 let ready = false;
 let currentActorId = "default";
+let currentPeerId: string | undefined = undefined;
 
 const plugin = {
   id: "memory-agentcore",
@@ -123,16 +124,17 @@ const plugin = {
     // --- Register all 8 tools (direct objects per OpenClaw convention) ---
 
     const getActorId = () => currentActorId;
+    const getPeerId = () => currentPeerId;
 
     const toolDefs = [
-      createRecallTool(client, config, getActorId),
-      createStoreTool(client, config, getActorId),
-      createForgetTool(client, config, getActorId),
-      createCorrectTool(client, config, getActorId),
-      createSearchTool(client, config, getActorId),
-      createStatsTool(client, config, getActorId),
-      createEpisodesTool(client, config, getActorId),
-      createShareTool(client, config, getActorId),
+      createRecallTool(client, config, getActorId, getPeerId),
+      createStoreTool(client, config, getActorId, getPeerId),
+      createForgetTool(client, config, getActorId, getPeerId),
+      createCorrectTool(client, config, getActorId, getPeerId),
+      createSearchTool(client, config, getActorId, getPeerId),
+      createStatsTool(client, config, getActorId, getPeerId),
+      createEpisodesTool(client, config, getActorId, getPeerId),
+      createShareTool(client, config, getActorId, getPeerId),
     ];
 
     for (const tool of toolDefs) {
@@ -150,7 +152,9 @@ const plugin = {
     // Always register — captures actorId for tool permission checks
     api.on("before_prompt_build", async (event: any, ctx: any) => {
       if (ctx.sessionKey) {
-        currentActorId = parseAgentIdFromSessionKey(ctx.sessionKey);
+        const agentId = parseAgentIdFromSessionKey(ctx.sessionKey);
+        currentPeerId = parsePeerIdFromSessionKey(ctx.sessionKey);
+        currentActorId = currentPeerId ?? agentId;
       }
 
       if (!client || !ready || config.autoRecallTopK <= 0) return;
@@ -177,6 +181,7 @@ const plugin = {
           actorId,
           config.scopes,
           config.namespaceMode,
+          currentPeerId,
         );
 
         // Add current session's summary/episodic namespaces
@@ -284,9 +289,13 @@ const plugin = {
         return;
       }
 
-      const actorId = ctx.sessionKey
+      const agentId = ctx.sessionKey
         ? parseAgentIdFromSessionKey(ctx.sessionKey)
         : "default";
+      const peerId = ctx.sessionKey
+        ? parsePeerIdFromSessionKey(ctx.sessionKey)
+        : undefined;
+      const actorId = peerId ?? agentId;
 
       // 1. File sync (independent, only needs actorId)
       if (fileSync) {
@@ -356,6 +365,9 @@ const plugin = {
               role: m.role ?? "user",
               text: stripAgentcoreMemory(extractText(m.content)),
             })),
+            // Best-effort: AWS does not propagate custom metadata to extracted Memory Records.
+            // This metadata is only on the raw Event, useful for tracing and debugging.
+            ...(peerId ? { metadata: { userId: peerId, agentId } } : {}),
           });
 
           api.logger.info(

@@ -33,6 +33,18 @@ OpenClaw 内置的 memory-core 将记忆存储为本地 Markdown 文件，每个
 - **文件同步**：将本地文档同步到 AgentCore 用于语义搜索（默认为空 — 引导文件已在 Prompt 中）
 - **按需删除记忆**：通过 `agentcore_forget` 工具
 - **双语噪声过滤**（中/英）和自适应检索
+- **面客模式**：自动按客户维度隔离记忆（`actorId = peerId ?? agentId`），跨 Agent 天然共享
+
+### 两种部署模式
+
+| 模式 | actorId | 记忆维度 | 适用场景 |
+|------|---------|---------|---------|
+| 员工助手（默认） | agentId | 按 Agent | `dmScope: main` |
+| 面客 DM | **客户 peerId** | **按客户** | `dmScope: per-peer` |
+
+面客模式无需额外配置——插件从 sessionKey 自动提取 peerId。详见 **[面客服务指南](docs/CUSTOMER-FACING-GUIDE.zh-CN.md)**。
+
+**安全**：面客部署务必配合 `tools.deny`（禁用文件/命令工具）和 `sandbox`（沙箱隔离）。插件的命名空间权限检查在代码层面强制客户间隔离，prompt injection 无法绕过。
 
 ## 前提条件
 

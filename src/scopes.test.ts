@@ -5,6 +5,9 @@ import {
   buildSessionNamespaces,
   buildStrategyNamespaces,
   resolveAccessibleNamespaces,
+  resolveWritableNamespaces,
+  resolveWildcardPrefixes,
+  isScopeReadable,
   scopeToSearchNamespaces,
   parseScope,
   scopeToNamespace,
@@ -106,13 +109,13 @@ describe("scopeToSearchNamespaces", () => {
   it("global returns only primary", () => {
     assert.deepEqual(scopeToSearchNamespaces({ kind: "global" }, "per-agent"), ["/global"]);
   });
-  it("agent scope expands to include strategies", () => {
+  it("agent scope expands to include strategies and summary", () => {
     const ns = scopeToSearchNamespaces({ kind: "agent", id: "bija" }, "per-agent");
     assert.ok(ns.includes("/agents/bija"));
     assert.ok(ns.includes("/semantic/bija"));
     assert.ok(ns.includes("/episodic/bija"));
     assert.ok(ns.includes("/preferences/bija"));
-    assert.ok(!ns.includes("/summary/bija"), "summary is session-scoped only, no actor-level namespace");
+    assert.ok(ns.includes("/summary/bija"), "actor-level summary included");
   });
   it("project scope does not expand", () => {
     assert.deepEqual(
@@ -136,7 +139,7 @@ describe("resolveAccessibleNamespaces", () => {
     assert.ok(ns.includes("/semantic/bija"));
     assert.ok(ns.includes("/episodic/bija"));
     assert.ok(ns.includes("/preferences/bija"));
-    assert.ok(!ns.includes("/summary/bija"), "summary is session-scoped only");
+    assert.ok(ns.includes("/summary/bija"), "actor-level summary included");
   });
 
   it("shared mode uses flat strategy paths", () => {
@@ -152,7 +155,7 @@ describe("resolveAccessibleNamespaces", () => {
     assert.ok(ns.includes("/semantic/sales"));
     assert.ok(ns.includes("/episodic/sales"));
     assert.ok(ns.includes("/preferences/sales"));
-    assert.ok(!ns.includes("/summary/sales"), "summary is session-scoped only");
+    assert.ok(ns.includes("/summary/sales"), "cross-agent summary included");
   });
 
   it("deduplicates namespaces", () => {
@@ -162,14 +165,104 @@ describe("resolveAccessibleNamespaces", () => {
     assert.equal(dupes.length, 0);
   });
 
-  it("combined with buildSessionNamespaces produces exactly 6 namespaces", () => {
+  it("combined with buildSessionNamespaces produces expected namespaces", () => {
     const ns = resolveAccessibleNamespaces("bija", emptyCfg, "per-agent");
     const sessionNs = buildSessionNamespaces("bija", "s1", "per-agent");
     const combined = [...new Set([...ns, ...sessionNs])];
-    assert.equal(combined.length, 6);
+    assert.equal(combined.length, 7);
     assert.deepEqual(combined.sort(), [
       "/agents/bija", "/episodic/bija", "/global",
-      "/preferences/bija", "/semantic/bija", "/summary/bija/s1",
+      "/preferences/bija", "/semantic/bija", "/summary/bija", "/summary/bija/s1",
     ]);
+  });
+
+  it("with peerId uses /users/ primary instead of /agents/", () => {
+    const ns = resolveAccessibleNamespaces("support", emptyCfg, "per-agent", "+86138xxx");
+    assert.ok(ns.includes("/users/_86138xxx"), "should include /users/{peerId}");
+    assert.ok(!ns.includes("/agents/support"), "should NOT include /agents/{agentId}");
+    assert.ok(ns.includes("/global"));
+    // Strategy namespaces use actorId (= peerId in DM)
+    // but actorId passed to function is "support", so strategies use "support"
+    // Wait — actorId here is "support" but in real usage actorId = peerId ?? agentId
+    // In real usage, actorId would already be "+86138xxx" when peerId exists
+  });
+
+  it("with peerId: actorId=peerId generates user-scoped strategy namespaces", () => {
+    // In real usage: actorId = peerId ?? agentId = "+86138xxx"
+    const ns = resolveAccessibleNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx");
+    assert.ok(ns.includes("/users/_86138xxx"), "/users/ primary");
+    assert.ok(ns.includes("/semantic/_86138xxx"), "semantic strategy for customer");
+    assert.ok(ns.includes("/episodic/_86138xxx"), "episodic strategy for customer");
+    assert.ok(ns.includes("/preferences/_86138xxx"), "preferences strategy for customer");
+    assert.ok(!ns.includes("/agents/_86138xxx"), "no /agents/ prefix for customer");
+  });
+
+  it("without peerId (undefined) uses /agents/ primary as before", () => {
+    const ns = resolveAccessibleNamespaces("bija", emptyCfg, "per-agent", undefined);
+    assert.ok(ns.includes("/agents/bija"));
+    assert.ok(!ns.some(n => n.startsWith("/users/")));
+  });
+});
+
+describe("resolveWritableNamespaces with peerId", () => {
+  const emptyCfg = { agentAccess: {}, writeAccess: {} };
+
+  it("with peerId uses /users/ primary", () => {
+    const ns = resolveWritableNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx");
+    assert.ok(ns.includes("/users/_86138xxx"));
+    assert.ok(!ns.includes("/agents/_86138xxx"));
+  });
+
+  it("without peerId uses /agents/ primary", () => {
+    const ns = resolveWritableNamespaces("bija", emptyCfg, "per-agent");
+    assert.ok(ns.includes("/agents/bija"));
+  });
+});
+
+describe("resolveWildcardPrefixes", () => {
+  it("returns /users/ prefix for user:* scope", () => {
+    const cfg = { agentAccess: { employee: ["user:*"] }, writeAccess: {} };
+    const prefixes = resolveWildcardPrefixes(cfg, "employee");
+    assert.deepEqual(prefixes, ["/users/"]);
+  });
+
+  it("returns empty for no wildcard", () => {
+    const cfg = { agentAccess: { employee: ["agent:sales"] }, writeAccess: {} };
+    const prefixes = resolveWildcardPrefixes(cfg, "employee");
+    assert.deepEqual(prefixes, []);
+  });
+
+  it("returns empty for unknown actor", () => {
+    const cfg = { agentAccess: {}, writeAccess: {} };
+    const prefixes = resolveWildcardPrefixes(cfg, "nobody");
+    assert.deepEqual(prefixes, []);
+  });
+});
+
+describe("isScopeReadable with peerId and wildcards", () => {
+  it("customer can read own /users/ namespace", () => {
+    const cfg = { agentAccess: {}, writeAccess: {} };
+    const result = isScopeReadable("+86138xxx", ["/users/_86138xxx"], cfg, "per-agent", "+86138xxx");
+    assert.ok(result.allowed);
+    assert.deepEqual(result.filteredNamespaces, ["/users/_86138xxx"]);
+  });
+
+  it("customer cannot read other customer namespace", () => {
+    const cfg = { agentAccess: {}, writeAccess: {} };
+    const result = isScopeReadable("+86138xxx", ["/users/_86139xxx"], cfg, "per-agent", "+86138xxx");
+    assert.ok(!result.allowed);
+  });
+
+  it("employee with user:* wildcard can read any /users/ namespace", () => {
+    const cfg = { agentAccess: { employee: ["user:*"] }, writeAccess: {} };
+    const result = isScopeReadable("employee", ["/users/_86138xxx", "/users/_86139xxx"], cfg, "per-agent");
+    assert.ok(result.allowed);
+    assert.equal(result.filteredNamespaces.length, 2);
+  });
+
+  it("employee without user:* cannot read /users/ namespaces", () => {
+    const cfg = { agentAccess: {}, writeAccess: {} };
+    const result = isScopeReadable("employee", ["/users/_86138xxx"], cfg, "per-agent");
+    assert.ok(!result.allowed);
   });
 });
