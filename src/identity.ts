@@ -17,13 +17,20 @@ export function parseSessionIdFromSessionKey(sessionKey: string): string | undef
 }
 
 export function parsePeerIdFromSessionKey(sessionKey: string): string | undefined {
-  // DM session keys contain :dm:<peerId> at the end:
-  // "agent:support:dm:+8613800138000" → "+8613800138000"
-  // "agent:support:telegram:dm:123456789" → "123456789"
-  // "agent:support:feishu:dm:ou_alice123" → "ou_alice123"
+  // OpenClaw uses :direct: in actual session keys (buildAgentPeerSessionKey).
+  // :dm: is kept for backward compatibility (OpenClaw's parse side also accepts both).
+  //
+  // :direct: (actual OpenClaw format):
+  //   "agent:agama:direct:ou_fd063e94..."           → per-peer
+  //   "agent:support:telegram:direct:123456789"     → per-channel-peer
+  //   "agent:support:feishu:default:direct:ou_xxx"  → per-account-channel-peer
+  //
+  // :dm: (legacy/compat):
+  //   "agent:support:dm:+8613800138000"             → per-peer
+  //
   // Non-DM keys return undefined:
-  // "agent:bija:session:abc123" → undefined
-  // "agent:bot:telegram:group:-100xxx" → undefined
-  const match = sessionKey.match(/:dm:([^:]+)$/);
+  //   "agent:bija:session:abc123"                   → undefined
+  //   "agent:bot:telegram:group:-100xxx"            → undefined
+  const match = sessionKey.match(/:(?:dm|direct):([^:]+)$/);
   return match?.[1] || undefined;
 }

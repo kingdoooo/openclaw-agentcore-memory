@@ -57,4 +57,24 @@ describe("parsePeerIdFromSessionKey", () => {
   it("empty string", () => {
     assert.equal(parsePeerIdFromSessionKey(""), undefined);
   });
+
+  // :direct: — OpenClaw actual format (buildAgentPeerSessionKey)
+  it("per-peer direct (Feishu Open ID)", () => {
+    assert.equal(
+      parsePeerIdFromSessionKey("agent:agama:direct:ou_fd063e9461d60c03d72425a080786d18"),
+      "ou_fd063e9461d60c03d72425a080786d18",
+    );
+  });
+  it("per-channel-peer direct (Telegram ID)", () => {
+    assert.equal(
+      parsePeerIdFromSessionKey("agent:support:telegram:direct:123456789"),
+      "123456789",
+    );
+  });
+  it("per-account-channel-peer direct", () => {
+    assert.equal(
+      parsePeerIdFromSessionKey("agent:support:feishu:default:direct:ou_alice123"),
+      "ou_alice123",
+    );
+  });
 });
