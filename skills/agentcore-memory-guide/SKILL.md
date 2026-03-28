@@ -225,14 +225,18 @@ When OpenClaw's `dmScope` is set to `per-peer` or `per-channel-peer`, the plugin
 - **actorId = peerId** (customer's phone number, Telegram ID, etc.)
 - Memories are extracted and stored per customer, not per agent
 - Different agents serving the same customer share memories naturally
-- Group chats (no `:dm:` segment) fall back to per-agent mode
+- `/agents/{agentId}` is automatically included in readable namespaces (shared agent knowledge like FAQ, product docs)
+- Group chats (no `:direct:` segment) fall back to per-agent mode
+
+> **Note**: OpenClaw uses `:direct:` in session keys (`:dm:` was the legacy format pre-2026.3.7). The plugin supports both.
 
 ### Best Practices for Customer-Facing
 
 1. **Security**: Configure `tools.deny` to block `group:runtime`, `group:fs`, `group:automation`. Enable sandbox with `workspaceAccess: "none"`.
 2. **Employee access**: To let employee agents query customer memories, configure `agentAccess: { "employee-agent": ["user:*"] }`.
-3. **Manual store**: Agent can use `agentcore_store(scope="user:+86138xxx")` to explicitly save to a customer's namespace.
-4. **peerId sanitization**: Special chars like `+` are replaced with `_` in namespace paths (e.g., `+86138xxx` → `_86138xxx`).
+3. **Wildcard access**: Use `agentAccess: { "*": ["agent:support"] }` to grant all users read access to agent knowledge. Specific keys take priority over `"*"`.
+4. **Manual store**: Agent can use `agentcore_store(scope="user:+86138xxx")` to explicitly save to a customer's namespace.
+5. **peerId sanitization**: Special chars like `+` are replaced with `_` in namespace paths (e.g., `+86138xxx` → `_86138xxx`).
 
 See [Customer-Facing Guide](../../docs/CUSTOMER-FACING-GUIDE.zh-CN.md) for full setup instructions.
 

@@ -703,10 +703,12 @@ actorId = peerId ?? agentId
 
 | 条件 | actorId | 记忆维度 | 场景 |
 |------|---------|---------|------|
-| sessionKey 无 `:dm:` 段 | agentId | 按 Agent | 员工助手 / 群聊 |
-| sessionKey 有 `:dm:<peerId>` | **peerId** | **按客户** | 面客 DM |
+| sessionKey 无 `:direct:` 段 | agentId | 按 Agent | 员工助手 / 群聊 |
+| sessionKey 有 `:direct:<peerId>` | **peerId** | **按客户** | 面客 DM |
 
-peerId 从 sessionKey 通过正则 `:dm:([^:]+)$` 自动提取。无需配置开关——行为完全由 OpenClaw 的 `dmScope` 配置决定。
+peerId 从 sessionKey 通过正则 `:(?:dm|direct):([^:]+)$` 自动提取（兼容旧版 `:dm:` 和当前 `:direct:` 格式）。无需配置开关——行为完全由 OpenClaw 的 `dmScope` 配置决定。
+
+> **注意**：`:dm:` 是 OpenClaw 早期格式（2026.3.7 之前），当前版本使用 `:direct:`。插件兼容两种格式。
 
 ### 7.2 命名空间变化
 
@@ -716,9 +718,12 @@ peerId 从 sessionKey 通过正则 `:dm:([^:]+)$` 自动提取。无需配置开
 
 **有 peerId 时（面客 DM）**：
 - 主命名空间：**`/users/{peerId}`**（非 `/agents/`，语义正确）
+- 可读命名空间：**`/agents/{agentId}`**（agent 共享知识库，如 FAQ、产品文档）
 - 策略命名空间：`/semantic/{peerId}`, `/episodic/{peerId}`, `/preferences/{peerId}`
 
 不同 Agent 服务同一客户时，actorId 相同 → 搜索和写入相同命名空间 → **天然跨 Agent 共享**。
+
+> **注意**：`/agents/{agentId}` 在 per-peer 模式下默认**只读不可写**。写入需通过 `scopes.writeAccess` 显式授权。
 
 ### 7.3 安全模型
 
@@ -741,7 +746,24 @@ peerId 从 sessionKey 通过正则 `:dm:([^:]+)$` 自动提取。无需配置开
 
 `resolveWildcardPrefixes` 函数将 `user:*` 解析为 `/users/` 前缀匹配。
 
-### 7.5 sanitizeId 转换
+### 7.5 通配符 `"*"` Key
+
+`agentAccess` 和 `writeAccess` 支持 `"*"` 作为通配符 key，匹配所有未被具体 key 覆盖的 actorId：
+
+```json5
+{
+  "scopes": {
+    "agentAccess": {
+      "specific-user-id": ["agent:support", "user:*"],  // 优先匹配
+      "*": ["agent:support"]                             // 所有其他用户的 fallback
+    }
+  }
+}
+```
+
+具体 actorId key 优先于 `"*"`——当两者都存在时，使用具体 key 的配置。
+
+### 7.6 sanitizeId 转换
 
 `sanitizeId` 将非 `[a-zA-Z0-9_\-.]` 字符替换为 `_`（幂等）：
 - `+8613800138000` → `_8613800138000`

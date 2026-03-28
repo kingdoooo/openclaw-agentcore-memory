@@ -397,13 +397,13 @@ AWS AgentCore 的设计意图是 `actorId` = 终端用户。memory-agentcore 遵
 actorId = peerId ?? agentId
 ```
 
-当 OpenClaw 的 `dmScope` 配置为 `per-peer` 或 `per-channel-peer` 时，sessionKey 包含客户标识（`:dm:<peerId>`）。插件自动提取 peerId 作为 actorId，使记忆**天然按客户维度隔离和共享**：
+当 OpenClaw 的 `dmScope` 配置为 `per-peer` 或 `per-channel-peer` 时，sessionKey 包含客户标识（`:direct:<peerId>`，旧版为 `:dm:`）。插件自动提取 peerId 作为 actorId，使记忆**天然按客户维度隔离和共享**：
 
 | 条件 | actorId | 记忆维度 |
 |------|---------|---------|
 | 员工助手（dmScope: main） | agentId | 按 Agent 隔离 |
 | 面客 DM（dmScope: per-peer） | **peerId（客户 ID）** | **按客户隔离** |
-| 群聊（无 `:dm:` 段） | agentId（降级） | 按 Agent 隔离 |
+| 群聊（无 `:direct:` 段） | agentId（降级） | 按 Agent 隔离 |
 
 回到引言的电商场景——在面客部署下：
 
