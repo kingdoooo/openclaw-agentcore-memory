@@ -95,6 +95,7 @@ export function resolveAccessibleNamespaces(
   scopesConfig: ScopesConfig,
   mode: NamespaceMode,
   peerId?: string,
+  agentId?: string,
 ): string[] {
   const ns = new Set<string>();
   ns.add("/global");
@@ -102,6 +103,10 @@ export function resolveAccessibleNamespaces(
   // Primary namespace: /users/{peerId} when DM, /agents/{actorId} otherwise
   if (peerId) {
     ns.add(scopeToNamespace({ kind: "user", id: peerId }));
+    // Per-peer: also readable /agents/{agentId} for shared knowledge (FAQ, docs)
+    if (agentId) {
+      ns.add(scopeToNamespace({ kind: "agent", id: agentId }));
+    }
   } else {
     ns.add(scopeToNamespace({ kind: "agent", id: actorId }));
   }
@@ -112,7 +117,9 @@ export function resolveAccessibleNamespaces(
   ns.add(selfSummary);
 
   // Authorized scopes — agent scopes get strategy expansion
-  const accessList = scopesConfig.agentAccess[actorId];
+  // "*" key is a wildcard fallback for all actorIds
+  const accessList = scopesConfig.agentAccess[actorId]
+    ?? scopesConfig.agentAccess["*"];
   if (accessList) {
     for (const scopeStr of accessList) {
       const scope = parseScope(scopeStr);
@@ -148,7 +155,8 @@ export function resolveWritableNamespaces(
     namespaces.push(scopeToNamespace({ kind: "agent", id: actorId }));
   }
 
-  const writeList = scopesConfig.writeAccess[actorId];
+  const writeList = scopesConfig.writeAccess[actorId]
+    ?? scopesConfig.writeAccess["*"];
   if (writeList) {
     for (const scopeStr of writeList) {
       const scope = parseScope(scopeStr);
@@ -201,7 +209,8 @@ function hasWriteEnforcement(_sc: ScopesConfig): boolean {
  */
 export function resolveWildcardPrefixes(scopesConfig: ScopesConfig, actorId: string): string[] {
   const prefixes: string[] = [];
-  const accessList = scopesConfig.agentAccess[actorId];
+  const accessList = scopesConfig.agentAccess[actorId]
+    ?? scopesConfig.agentAccess["*"];
   if (accessList) {
     for (const scopeStr of accessList) {
       if (scopeStr === "user:*") prefixes.push("/users/");
@@ -216,11 +225,12 @@ export function isScopeReadable(
   scopesConfig: ScopesConfig,
   mode: NamespaceMode,
   peerId?: string,
+  agentId?: string,
 ): { allowed: boolean; filteredNamespaces: string[] } {
   if (!hasReadEnforcement(scopesConfig)) {
     return { allowed: true, filteredNamespaces: requestedNamespaces };
   }
-  const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode, peerId));
+  const accessible = new Set(resolveAccessibleNamespaces(actorId, scopesConfig, mode, peerId, agentId));
   const wildcardPrefixes = resolveWildcardPrefixes(scopesConfig, actorId);
   const filtered = requestedNamespaces.filter(ns =>
     accessible.has(ns) || wildcardPrefixes.some(prefix => ns.startsWith(prefix))

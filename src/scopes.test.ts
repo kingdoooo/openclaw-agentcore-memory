@@ -176,31 +176,47 @@ describe("resolveAccessibleNamespaces", () => {
     ]);
   });
 
-  it("with peerId uses /users/ primary instead of /agents/", () => {
-    const ns = resolveAccessibleNamespaces("support", emptyCfg, "per-agent", "+86138xxx");
-    assert.ok(ns.includes("/users/_86138xxx"), "should include /users/{peerId}");
-    assert.ok(!ns.includes("/agents/support"), "should NOT include /agents/{agentId}");
+  it("with peerId + agentId: includes /users/ primary AND /agents/{agentId} readable", () => {
+    const ns = resolveAccessibleNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx", "agama");
+    assert.ok(ns.includes("/users/_86138xxx"), "/users/ primary for customer");
+    assert.ok(ns.includes("/agents/agama"), "/agents/{agentId} readable for shared knowledge");
+    assert.ok(ns.includes("/semantic/_86138xxx"), "strategy ns uses actorId=peerId");
     assert.ok(ns.includes("/global"));
-    // Strategy namespaces use actorId (= peerId in DM)
-    // but actorId passed to function is "support", so strategies use "support"
-    // Wait — actorId here is "support" but in real usage actorId = peerId ?? agentId
-    // In real usage, actorId would already be "+86138xxx" when peerId exists
+  });
+
+  it("with peerId but no agentId: /agents/ not included", () => {
+    const ns = resolveAccessibleNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx");
+    assert.ok(ns.includes("/users/_86138xxx"), "/users/ primary");
+    assert.ok(!ns.some(n => n.startsWith("/agents/")), "no /agents/ without agentId");
   });
 
   it("with peerId: actorId=peerId generates user-scoped strategy namespaces", () => {
-    // In real usage: actorId = peerId ?? agentId = "+86138xxx"
-    const ns = resolveAccessibleNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx");
-    assert.ok(ns.includes("/users/_86138xxx"), "/users/ primary");
+    const ns = resolveAccessibleNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx", "agama");
     assert.ok(ns.includes("/semantic/_86138xxx"), "semantic strategy for customer");
     assert.ok(ns.includes("/episodic/_86138xxx"), "episodic strategy for customer");
     assert.ok(ns.includes("/preferences/_86138xxx"), "preferences strategy for customer");
-    assert.ok(!ns.includes("/agents/_86138xxx"), "no /agents/ prefix for customer");
   });
 
   it("without peerId (undefined) uses /agents/ primary as before", () => {
     const ns = resolveAccessibleNamespaces("bija", emptyCfg, "per-agent", undefined);
     assert.ok(ns.includes("/agents/bija"));
     assert.ok(!ns.some(n => n.startsWith("/users/")));
+  });
+
+  it("agentAccess '*' wildcard key works as fallback", () => {
+    const cfg = { agentAccess: { "*": ["project:shared"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("+86138xxx", cfg, "per-agent", "+86138xxx", "agama");
+    assert.ok(ns.includes("/projects/shared"), "wildcard grants project access");
+  });
+
+  it("specific actorId key takes priority over '*' wildcard", () => {
+    const cfg = {
+      agentAccess: { "+86138xxx": ["project:vip"], "*": ["project:basic"] },
+      writeAccess: {},
+    };
+    const ns = resolveAccessibleNamespaces("+86138xxx", cfg, "per-agent", "+86138xxx", "agama");
+    assert.ok(ns.includes("/projects/vip"), "specific key matched");
+    assert.ok(!ns.includes("/projects/basic"), "wildcard not used when specific key exists");
   });
 });
 

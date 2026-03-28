@@ -8,6 +8,7 @@ export function createEpisodesTool(
   config: PluginConfig,
   getActorId: () => string,
   getPeerId?: () => string | undefined,
+  getAgentId?: () => string,
 ) {
   return {
     name: "agentcore_episodes",
@@ -53,7 +54,7 @@ export function createEpisodesTool(
       // Permission check
       const currentActorId = getActorId();
       const peerId = getPeerId?.();
-      const readCheck = isScopeReadable(currentActorId, uniqueNamespaces, config.scopes, config.namespaceMode, peerId);
+      const readCheck = isScopeReadable(currentActorId, uniqueNamespaces, config.scopes, config.namespaceMode, peerId, getAgentId?.());
       if (!readCheck.allowed) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: `Episodic namespaces for '${actorId ?? "default"}' are not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],

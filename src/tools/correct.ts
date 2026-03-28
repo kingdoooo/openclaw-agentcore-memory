@@ -28,7 +28,7 @@ async function retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-export function createCorrectTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
+export function createCorrectTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined, getAgentId?: () => string) {
   return {
     name: "agentcore_correct",
     label: "AgentCore Correct",

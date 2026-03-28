@@ -2,7 +2,7 @@ import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace, isScopeWritable } from "../scopes.js";
 
-export function createShareTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined) {
+export function createShareTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined, getAgentId?: () => string) {
   return {
     name: "agentcore_share",
     label: "AgentCore Share",

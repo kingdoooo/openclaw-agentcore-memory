@@ -57,6 +57,7 @@ let fileSync: FileSync | null = null;
 let ready = false;
 let currentActorId = "default";
 let currentPeerId: string | undefined = undefined;
+let currentAgentId = "default";
 
 const plugin = {
   id: "memory-agentcore",
@@ -125,16 +126,17 @@ const plugin = {
 
     const getActorId = () => currentActorId;
     const getPeerId = () => currentPeerId;
+    const getAgentId = () => currentAgentId;
 
     const toolDefs = [
-      createRecallTool(client, config, getActorId, getPeerId),
-      createStoreTool(client, config, getActorId, getPeerId),
-      createForgetTool(client, config, getActorId, getPeerId),
-      createCorrectTool(client, config, getActorId, getPeerId),
-      createSearchTool(client, config, getActorId, getPeerId),
-      createStatsTool(client, config, getActorId, getPeerId),
-      createEpisodesTool(client, config, getActorId, getPeerId),
-      createShareTool(client, config, getActorId, getPeerId),
+      createRecallTool(client, config, getActorId, getPeerId, getAgentId),
+      createStoreTool(client, config, getActorId, getPeerId, getAgentId),
+      createForgetTool(client, config, getActorId, getPeerId, getAgentId),
+      createCorrectTool(client, config, getActorId, getPeerId, getAgentId),
+      createSearchTool(client, config, getActorId, getPeerId, getAgentId),
+      createStatsTool(client, config, getActorId, getPeerId, getAgentId),
+      createEpisodesTool(client, config, getActorId, getPeerId, getAgentId),
+      createShareTool(client, config, getActorId, getPeerId, getAgentId),
     ];
 
     for (const tool of toolDefs) {
@@ -155,6 +157,7 @@ const plugin = {
         const agentId = parseAgentIdFromSessionKey(ctx.sessionKey);
         currentPeerId = parsePeerIdFromSessionKey(ctx.sessionKey);
         currentActorId = currentPeerId ?? agentId;
+        currentAgentId = agentId;
       }
 
       if (!client || !ready || config.autoRecallTopK <= 0) return;
@@ -182,6 +185,7 @@ const plugin = {
           config.scopes,
           config.namespaceMode,
           currentPeerId,
+          currentAgentId,
         );
 
         // Add current session's summary/episodic namespaces

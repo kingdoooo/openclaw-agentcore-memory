@@ -7,6 +7,7 @@ export function createStatsTool(
   config: PluginConfig,
   getActorId: () => string,
   getPeerId?: () => string | undefined,
+  getAgentId?: () => string,
 ) {
   return {
     name: "agentcore_stats",
@@ -31,7 +32,7 @@ export function createStatsTool(
       // Permission check
       const actorId = getActorId();
       const peerId = getPeerId?.();
-      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode, peerId);
+      const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode, peerId, getAgentId?.());
       if (!readCheck.allowed) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
