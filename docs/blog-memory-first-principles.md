@@ -80,6 +80,57 @@ OpenClaw 的记忆体系可以理解为三个独立但协同的层：
 
 三层各管不同维度的数据：上下文层管"**发生了什么**"（对话历史），本地记忆层管"**记住了什么**"（策划性知识），云端共享层管"**共享了什么**"（跨 Agent 知识）。
 
+### 内置记忆组件的多用户盲区
+
+在深入 memory-agentcore 之前，有必要理解 OpenClaw 内置的两个记忆组件为什么**无法满足面客场景**。
+
+**memory-core：基于文件的记忆搜索**
+
+memory-core 的本质是工作区文件索引。它通过 `memory_search` 和 `memory_get` 两个工具，对 Agent 工作区下的 `MEMORY.md` 和 `memory/*.md` 文件进行混合 BM25 + 向量搜索。
+
+```
+memory-core 的数据路径：
+  Agent 主动写 MEMORY.md → memory_search 搜索 → 返回匹配行
+
+限制：
+  - 所有用户共享同一份文件
+  - 无 namespace / scope 概念
+  - 无自动捕获（依赖 Agent 主动写文件）
+```
+
+当多个客户与同一个 Agent 对话时，所有客户的信息都混在同一个 `MEMORY.md` 中——客户 A 的偏好可能被召回给客户 B。这不仅是隐私问题，也是**功能缺陷**：搜索结果被其他客户的无关信息污染，降低精准度。
+
+**memory-lancedb：本地向量数据库**
+
+memory-lancedb 使用 LanceDB 存储向量嵌入，提供 `memory_recall`、`memory_store`、`memory_forget` 三个工具，支持 auto-recall（自动注入）和 auto-capture（自动捕获）。
+
+```
+memory-lancedb 的数据路径：
+  对话 → 触发词检测 → 自动存储到 LanceDB
+  下次对话 → 向量检索 → 注入 prompt
+
+限制：
+  - 单一 dbPath，所有用户共享同一个向量库
+  - 无 namespace / per-user 隔离
+  - 无策略提取（依赖正则触发词匹配）
+```
+
+memory-lancedb 比 memory-core 更智能（有 auto-recall/capture），但在多用户隔离上**同样缺失**——所有客户的记忆存在同一个 LanceDB 实例中，检索时无法按用户过滤。
+
+**三个组件的面客能力对比：**
+
+| 能力 | memory-core | memory-lancedb | memory-agentcore |
+|------|------------|---------------|-----------------|
+| 存储引擎 | 本地 Markdown 文件 | 本地 LanceDB 向量库 | AWS AgentCore 云端 |
+| 自动召回 | ❌ 需手动调工具 | ✅ `before_agent_start` | ✅ `before_prompt_build` |
+| 自动捕获 | ❌ 需 Agent 写文件 | ✅ 正则触发词匹配 | ✅ AWS 4 策略提取 |
+| 多用户隔离 | ❌ 共享文件 | ❌ 共享 dbPath | ✅ actorId → 命名空间 |
+| 跨 Agent 共享 | ❌ | ❌ | ✅ 命名空间 + agentAccess |
+| 离线可用 | ✅ | ✅ | ❌ 依赖云端 |
+| 适合场景 | 单用户 workspace 笔记 | 单用户长期记忆 | **多用户面客 + 多 Agent 协作** |
+
+这就是 memory-agentcore 存在的核心理由：**内置组件解决单用户记忆，memory-agentcore 解决多用户记忆隔离与跨 Agent 共享。** 三者不是竞争关系，而是服务不同维度的需求。
+
 ### "general" 插件：零侵入式增强
 
 OpenClaw 的插件系统有两个独占 Slot：Memory Slot 和 Context Engine Slot。同一时间只能有一个插件占据每个 Slot。memory-core 已占用 Memory Slot，lossless-claw 可能占用 Context Engine Slot。
