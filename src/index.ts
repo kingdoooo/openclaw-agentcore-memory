@@ -58,6 +58,7 @@ let ready = false;
 let currentActorId = "default";
 let currentPeerId: string | undefined = undefined;
 let currentAgentId = "default";
+let currentSessionId: string | undefined = undefined;
 
 const plugin = {
   id: "memory-agentcore",
@@ -127,9 +128,10 @@ const plugin = {
     const getActorId = () => currentActorId;
     const getPeerId = () => currentPeerId;
     const getAgentId = () => currentAgentId;
+    const getSessionId = () => currentSessionId;
 
     const toolDefs = [
-      createRecallTool(client, config, getActorId, getPeerId, getAgentId),
+      createRecallTool(client, config, getActorId, getPeerId, getAgentId, getSessionId),
       createStoreTool(client, config, getActorId, getPeerId, getAgentId),
       createForgetTool(client, config, getActorId, getPeerId, getAgentId),
       createCorrectTool(client, config, getActorId, getPeerId, getAgentId),
@@ -158,6 +160,8 @@ const plugin = {
         currentPeerId = parsePeerIdFromSessionKey(ctx.sessionKey);
         currentActorId = currentPeerId ?? agentId;
         currentAgentId = agentId;
+        currentSessionId = ctx.sessionId
+          ?? parseSessionIdFromSessionKey(ctx.sessionKey);
       }
 
       if (!client || !ready || config.autoRecallTopK <= 0) return;

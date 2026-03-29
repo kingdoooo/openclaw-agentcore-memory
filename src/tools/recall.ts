@@ -1,6 +1,6 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToNamespace, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
+import { parseScope, scopeToSearchNamespaces, isScopeReadable, filterNamespacesByStrategy, resolveAccessibleNamespaces, buildSessionNamespaces } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
 
 export function createRecallTool(
@@ -9,6 +9,7 @@ export function createRecallTool(
   getActorId: () => string,
   getPeerId?: () => string | undefined,
   getAgentId?: () => string,
+  getSessionId?: () => string | undefined,
 ) {
   return {
     name: "agentcore_recall",
@@ -29,7 +30,7 @@ export function createRecallTool(
         scope: {
           type: "string",
           description:
-            "Scope filter: 'global', 'agent:<id>', 'project:<id>', 'user:<id>'",
+            "Scope filter: 'global', 'agent:<id>', 'project:<id>', 'user:<id>'. If omitted, searches all accessible namespaces (same as auto-recall).",
         },
         strategy: {
           type: "string",
@@ -48,25 +49,33 @@ export function createRecallTool(
         };
       }
       const limit = (params.limit as number) ?? 5;
-      const scopeStr = (params.scope as string) ?? "global";
       const strategy = params.strategy as string | undefined;
-
-      const scope = parseScope(scopeStr);
-      const allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
-
-      // When peerId exists and user didn't specify a scope, also search user namespace
       const peerId = getPeerId?.();
-      if (peerId && !params.scope) {
-        const userNs = scopeToNamespace({ kind: "user", id: peerId });
-        if (!allNamespaces.includes(userNs)) allNamespaces.push(userNs);
+      const actorId = getActorId();
+      const agentId = getAgentId?.();
+
+      let allNamespaces: string[];
+      if (params.scope) {
+        const scope = parseScope(params.scope as string);
+        allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
+      } else {
+        allNamespaces = resolveAccessibleNamespaces(
+          actorId, config.scopes, config.namespaceMode, peerId, agentId,
+        );
+        // Add session namespaces (same as auto-recall)
+        const sessionId = getSessionId?.();
+        if (sessionId) {
+          for (const ns of buildSessionNamespaces(actorId, sessionId, config.namespaceMode)) {
+            allNamespaces.push(ns);
+          }
+        }
       }
 
       // Permission check
-      const actorId = getActorId();
       const readCheck = isScopeReadable(actorId, allNamespaces, config.scopes, config.namespaceMode, peerId, getAgentId?.());
       if (!readCheck.allowed) {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${scopeToString(scope)}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
+          content: [{ type: "text" as const, text: JSON.stringify({ error: `Scope '${params.scope ?? "auto"}' is not in your accessible namespaces. Configure scopes.agentAccess to grant access.` }) }],
           details: { error: "permission_denied" },
         };
       }
