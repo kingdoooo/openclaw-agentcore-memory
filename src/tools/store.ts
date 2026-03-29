@@ -27,7 +27,7 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
         scope: {
           type: "string",
           description:
-            "Scope: 'global', 'agent:<id>', 'project:<id>', 'user:<id>'",
+            "Scope: 'global', 'agent:<id>', 'project:<id>', 'user:<id>'. In DM sessions, defaults to current user scope; otherwise defaults to 'global'.",
         },
         tags: {
           type: "array",
@@ -41,7 +41,9 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
       const content = params.content as string;
       const category = (params.category as string) ?? "other";
       const importance = (params.importance as number) ?? 0.5;
-      const scopeStr = (params.scope as string) ?? "global";
+      const peerId = getPeerId?.();
+      const scopeStr = (params.scope as string)
+        ?? (peerId ? `user:${peerId}` : "global");
       const tags = (params.tags as string[]) ?? [];
 
       const scope = parseScope(scopeStr);
@@ -49,7 +51,6 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
 
       // Write permission check
       const actorId = getActorId();
-      const peerId = getPeerId?.();
       if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ stored: false, error: `Scope '${scopeToString(scope)}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],

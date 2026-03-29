@@ -28,7 +28,7 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
         },
         scope: {
           type: "string",
-          description: "Scope for search_query or purge_scope (default: global)",
+          description: "Scope for search_query or purge_scope. In DM sessions, defaults to current user scope; otherwise defaults to 'global'.",
         },
         purge_scope: {
           type: "boolean",
@@ -41,10 +41,11 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
       const recordIds = params.record_ids as string[] | undefined;
       const searchQuery = params.search_query as string | undefined;
       const confirm = (params.confirm as boolean) ?? false;
-      const scopeStr = (params.scope as string) ?? "global";
+      const peerId = getPeerId?.();
+      const scopeStr = (params.scope as string)
+        ?? (peerId ? `user:${peerId}` : "global");
       const purgeScope = (params.purge_scope as boolean) ?? false;
       const actorId = getActorId();
-      const peerId = getPeerId?.();
 
       // Purge entire scope
       if (purgeScope) {
