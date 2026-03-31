@@ -306,7 +306,8 @@ openclaw agentcore-remember <fact>     # 直接存储一条事实
 | `global` | `/global` |
 | `agent:refund-bot` | `/agents/refund-bot` |
 | `project:ecommerce` | `/projects/ecommerce` |
-| `user:alice` | `/users/alice` |
+| `user:alice` | `/users/alice` + 策略命名空间 |
+| `user:alice:semantic` | `/semantic/alice`（单策略） |
 | `custom:team-x` | `/custom/team-x` |
 
 > 修改 memory-agentcore 配置前，请先让你的 OpenClaw Agent 查阅 [agentcore-memory-guide](skills/agentcore-memory-guide/SKILL.md) skill。Agent 理解规则后会自行完成配置修改。完整的 scope 语法参考、跨 Agent 共享模式和问题排查均在此 skill 中。

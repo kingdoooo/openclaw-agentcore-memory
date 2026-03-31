@@ -35,8 +35,10 @@ function sanitizeId(input: string): string {
   return input.replace(/[^a-zA-Z0-9_\-.]/g, "_");
 }
 
-function strategyToNamespace(strategy: string, id: string, mode: NamespaceMode): string {
-  if (strategy === "primary") return `/agents/${sanitizeId(id)}`;
+function strategyToNamespace(strategy: string, id: string, mode: NamespaceMode, kind?: ScopeKind): string {
+  if (strategy === "primary") {
+    return kind === "user" ? `/users/${sanitizeId(id)}` : `/agents/${sanitizeId(id)}`;
+  }
   if (mode === "shared") return `/${strategy}`;
   return `/${strategy}/${sanitizeId(id)}`;
 }
@@ -116,20 +118,20 @@ export function resolveAccessibleNamespaces(
   const selfSummary = mode === "shared" ? "/summary" : `/summary/${sanitizeId(actorId)}`;
   ns.add(selfSummary);
 
-  // Authorized scopes — agent scopes get strategy expansion
+  // Authorized scopes — agent & user scopes get strategy expansion
   // "*" key is a wildcard fallback for all actorIds
   const accessList = scopesConfig.agentAccess[actorId]
     ?? scopesConfig.agentAccess["*"];
   if (accessList) {
     for (const scopeStr of accessList) {
       const scope = parseScope(scopeStr);
-      if (scope.kind === "agent" && scope.id && scope.strategy) {
+      if ((scope.kind === "agent" || scope.kind === "user") && scope.id && scope.strategy) {
         // Strategy-specific access: only the single namespace
-        ns.add(strategyToNamespace(scope.strategy, scope.id, mode));
+        ns.add(strategyToNamespace(scope.strategy, scope.id, mode, scope.kind));
       } else {
         // Full scope access (backward compatible)
         ns.add(scopeToNamespace(scope));
-        if (scope.kind === "agent" && scope.id) {
+        if ((scope.kind === "agent" || scope.kind === "user") && scope.id) {
           for (const sn of buildStrategyNamespaces(scope.id, mode)) ns.add(sn);
           const summaryNs = mode === "shared" ? "/summary" : `/summary/${sanitizeId(scope.id)}`;
           ns.add(summaryNs);
@@ -161,8 +163,8 @@ export function resolveWritableNamespaces(
     for (const scopeStr of writeList) {
       const scope = parseScope(scopeStr);
       let ns: string;
-      if (scope.kind === "agent" && scope.id && scope.strategy) {
-        ns = strategyToNamespace(scope.strategy, scope.id, mode);
+      if ((scope.kind === "agent" || scope.kind === "user") && scope.id && scope.strategy) {
+        ns = strategyToNamespace(scope.strategy, scope.id, mode, scope.kind);
       } else {
         ns = scopeToNamespace(scope);
       }

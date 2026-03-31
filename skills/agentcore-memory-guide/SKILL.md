@@ -55,20 +55,20 @@ All tools accept a `scope` parameter:
 | `global` | `"global"` | `/global` |
 | `agent` | `"agent:sales-bot"` | `/agents/sales-bot` + strategy namespaces |
 | `project` | `"project:ecommerce"` | `/projects/ecommerce` |
-| `user` | `"user:kent"` | `/users/kent` |
+| `user` | `"user:kent"` | `/users/kent` + strategy namespaces |
 | `custom` | `"custom:shared-kb"` | `/custom/shared-kb` |
 
-**Strategy filter** (optional third segment, agent scope only):
+**Strategy filter** (optional third segment, agent & user scopes):
 
 | Strategy | Example | Namespace |
 |----------|---------|-----------|
-| `semantic` | `"agent:bot:semantic"` | `/semantic/bot` |
-| `episodic` | `"agent:bot:episodic"` | `/episodic/bot` |
+| `semantic` | `"agent:bot:semantic"` or `"user:kent:semantic"` | `/semantic/bot` or `/semantic/kent` |
+| `episodic` | `"agent:bot:episodic"` or `"user:kent:episodic"` | `/episodic/bot` or `/episodic/kent` |
 | `preferences` | `"agent:bot:preferences"` | `/preferences/bot` |
 | `summary` | `"agent:bot:summary"` | `/summary/bot` |
-| `primary` | `"agent:bot:primary"` | `/agents/bot` |
+| `primary` | `"agent:bot:primary"` → `/agents/bot`; `"user:kent:primary"` → `/users/kent` | kind-aware |
 
-Without strategy segment, `"agent:bot"` expands to all 5 namespaces.
+Without strategy segment, `"agent:bot"` or `"user:kent"` expands to all 5 namespaces.
 Invalid kind → falls back to global. Invalid strategy → entry ignored (least privilege).
 
 > **Invalid scope handling**: Unknown kind (e.g. `"banana:xyz"`) silently falls back to global scope. Unknown strategy (e.g. `"agent:bot:typo"`) silently ignores the entry. Check gateway logs (`warn` level) if permissions behave unexpectedly.

@@ -8,6 +8,7 @@ import {
   resolveWritableNamespaces,
   resolveWildcardPrefixes,
   isScopeReadable,
+  isScopeWritable,
   scopeToSearchNamespaces,
   parseScope,
   scopeToNamespace,
@@ -280,5 +281,62 @@ describe("isScopeReadable with peerId and wildcards", () => {
     const cfg = { agentAccess: {}, writeAccess: {} };
     const result = isScopeReadable("employee", ["/users/_86138xxx"], cfg, "per-agent");
     assert.ok(!result.allowed);
+  });
+});
+
+describe("user scope strategy expansion in agentAccess", () => {
+  it("user:ou_xxx expands to primary + 4 strategy namespaces", () => {
+    const cfg = { agentAccess: { employee: ["user:ou_xxx"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("employee", cfg, "per-agent");
+    assert.ok(ns.includes("/users/ou_xxx"), "primary");
+    assert.ok(ns.includes("/semantic/ou_xxx"), "semantic");
+    assert.ok(ns.includes("/episodic/ou_xxx"), "episodic");
+    assert.ok(ns.includes("/preferences/ou_xxx"), "preferences");
+    assert.ok(ns.includes("/summary/ou_xxx"), "summary");
+  });
+
+  it("user:ou_xxx:semantic gives only /semantic/ou_xxx", () => {
+    const cfg = { agentAccess: { employee: ["user:ou_xxx:semantic"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("employee", cfg, "per-agent");
+    assert.ok(ns.includes("/semantic/ou_xxx"), "semantic granted");
+    assert.ok(!ns.includes("/users/ou_xxx"), "primary NOT granted");
+    assert.ok(!ns.includes("/episodic/ou_xxx"), "episodic NOT granted");
+  });
+
+  it("user:ou_xxx:primary gives /users/ou_xxx (not /agents/)", () => {
+    const cfg = { agentAccess: { employee: ["user:ou_xxx:primary"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("employee", cfg, "per-agent");
+    assert.ok(ns.includes("/users/ou_xxx"), "user primary");
+    assert.ok(!ns.includes("/agents/ou_xxx"), "not agent primary");
+  });
+
+  it("user:* wildcard does NOT expand to strategy namespaces", () => {
+    const cfg = { agentAccess: { employee: ["user:*"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("employee", cfg, "per-agent");
+    // user:* is handled by resolveWildcardPrefixes, not by scope expansion
+    assert.ok(!ns.includes("/semantic/ou_xxx"), "no specific user strategy ns");
+  });
+
+  it("regression: agent:bot-a expansion unchanged after user scope support", () => {
+    const cfg = { agentAccess: { bija: ["agent:sales"] }, writeAccess: {} };
+    const ns = resolveAccessibleNamespaces("bija", cfg, "per-agent");
+    assert.ok(ns.includes("/agents/sales"), "agent primary");
+    assert.ok(ns.includes("/semantic/sales"), "semantic");
+    assert.ok(ns.includes("/episodic/sales"), "episodic");
+    assert.ok(ns.includes("/preferences/sales"), "preferences");
+    assert.ok(ns.includes("/summary/sales"), "summary");
+  });
+
+  it("isScopeReadable allows user strategy namespaces via user: scope", () => {
+    const cfg = { agentAccess: { employee: ["user:ou_xxx"] }, writeAccess: {} };
+    const result = isScopeReadable("employee", ["/semantic/ou_xxx", "/episodic/ou_xxx"], cfg, "per-agent");
+    assert.ok(result.allowed);
+    assert.equal(result.filteredNamespaces.length, 2);
+  });
+
+  it("isScopeWritable allows user:ou_xxx:semantic in writeAccess", () => {
+    const cfg = { agentAccess: {}, writeAccess: { employee: ["user:ou_xxx:semantic"] } };
+    assert.ok(isScopeWritable("employee", "/semantic/ou_xxx", cfg, "per-agent"));
+    assert.ok(!isScopeWritable("employee", "/episodic/ou_xxx", cfg, "per-agent"));
   });
 });

@@ -306,7 +306,8 @@ Permissions are always enforced. Each agent can only access `/global` + its own 
 | `global` | `/global` |
 | `agent:refund-bot` | `/agents/refund-bot` |
 | `project:ecommerce` | `/projects/ecommerce` |
-| `user:alice` | `/users/alice` |
+| `user:alice` | `/users/alice` + strategy namespaces |
+| `user:alice:semantic` | `/semantic/alice` (single strategy) |
 | `custom:team-x` | `/custom/team-x` |
 
 > Before modifying memory-agentcore configuration, tell your OpenClaw Agent to read the [agentcore-memory-guide](skills/agentcore-memory-guide/SKILL.md) skill first. The agent will understand the rules and handle configuration changes. See this skill for complete scope syntax reference, cross-agent sharing patterns, and troubleshooting tips.
