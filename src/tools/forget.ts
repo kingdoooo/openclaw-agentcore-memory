@@ -1,6 +1,6 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
-import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
+import { parseScope, scopeToNamespace, scopeToString, isScopeWritable, resolveWritableNamespaces } from "../scopes.js";
 
 export function createForgetTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined, getAgentId?: () => string) {
   return {
@@ -151,40 +151,115 @@ export function createForgetTool(client: AgentCoreClient, config: PluginConfig, 
 
       // Search-based delete
       if (searchQuery) {
-        const namespace = scopeToNamespace(parseScope(scopeStr));
+        // Explicit scope: single namespace (backward compatible)
+        // No explicit scope: search all writable namespaces (except /global)
+        const explicitScope = !!params.scope;
 
-        // Write permission check
-        if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
-            details: { deleted: false, error: "permission_denied" },
-          };
+        if (explicitScope) {
+          const namespace = scopeToNamespace(parseScope(scopeStr));
+          if (!isScopeWritable(actorId, namespace, config.scopes, config.namespaceMode, peerId)) {
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Scope '${scopeStr}' is not in your writable namespaces. Configure scopes.writeAccess to grant access.` }) }],
+              details: { deleted: false, error: "permission_denied" },
+            };
+          }
+
+          try {
+            const records = await client.retrieveMemoryRecords({
+              query: searchQuery,
+              namespace,
+              topK: 10,
+            });
+
+            if (!confirm) {
+              const data = {
+                deleted: false,
+                preview: records.map((r) => ({
+                  id: r.memoryRecordId,
+                  content: r.content.slice(0, 200),
+                  score: r.score ? Number(r.score.toFixed(3)) : undefined,
+                })),
+                searched_namespaces: [namespace],
+                note: "Set confirm=true to delete these records, or use record_ids to delete specific ones.",
+              };
+              return {
+                content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+                details: { deleted: false, previewCount: records.length },
+              };
+            }
+
+            const ids = records.map((r) => r.memoryRecordId);
+            if (ids.length > 0) {
+              await client.batchDeleteRecords(ids);
+            }
+            const data = { deleted: true, count: ids.length, recordIds: ids };
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+              details: { deleted: true, count: ids.length },
+            };
+          } catch (err) {
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Search/delete failed: ${err}` }) }],
+              details: { deleted: false },
+            };
+          }
         }
 
+        // No explicit scope: search all writable namespaces (except /global)
+        const searchNamespaces = resolveWritableNamespaces(
+          actorId, config.scopes, config.namespaceMode, peerId,
+        ).filter(ns => ns !== "/global");
+
         try {
-          const records = await client.retrieveMemoryRecords({
-            query: searchQuery,
-            namespace,
-            topK: 10,
-          });
+          const results = await Promise.allSettled(
+            searchNamespaces.map(ns =>
+              client.retrieveMemoryRecords({ query: searchQuery, namespace: ns, topK: 10 }),
+            ),
+          );
+
+          // If all searches failed, return error
+          const allFailed = results.every(r => r.status === "rejected");
+          if (allFailed) {
+            const firstErr = (results[0] as PromiseRejectedResult).reason;
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ deleted: false, error: `Search failed across all namespaces: ${firstErr}` }) }],
+              details: { deleted: false },
+            };
+          }
+
+          // Merge results, deduplicate by memoryRecordId, sort by score
+          const seen = new Set<string>();
+          const merged: Array<{ memoryRecordId: string; content: string; score?: number }> = [];
+          for (const r of results) {
+            if (r.status !== "fulfilled") continue;
+            for (const rec of r.value) {
+              if (!seen.has(rec.memoryRecordId)) {
+                seen.add(rec.memoryRecordId);
+                merged.push(rec);
+              }
+            }
+          }
+          merged.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+          const topRecords = merged.slice(0, 10);
 
           if (!confirm) {
             const data = {
               deleted: false,
-              preview: records.map((r) => ({
+              preview: topRecords.map((r) => ({
                 id: r.memoryRecordId,
                 content: r.content.slice(0, 200),
                 score: r.score ? Number(r.score.toFixed(3)) : undefined,
               })),
+              searched_namespaces: searchNamespaces,
               note: "Set confirm=true to delete these records, or use record_ids to delete specific ones.",
             };
             return {
               content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-              details: { deleted: false, previewCount: records.length },
+              details: { deleted: false, previewCount: topRecords.length },
             };
           }
 
-          const ids = records.map((r) => r.memoryRecordId);
+          const ids = topRecords.map((r) => r.memoryRecordId);
           if (ids.length > 0) {
             await client.batchDeleteRecords(ids);
           }

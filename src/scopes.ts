@@ -157,6 +157,13 @@ export function resolveWritableNamespaces(
     namespaces.push(scopeToNamespace({ kind: "agent", id: actorId }));
   }
 
+  // Strategy namespaces for actor's own identity (mirrors resolveAccessibleNamespaces L116-119)
+  for (const sn of buildStrategyNamespaces(actorId, mode)) {
+    if (!namespaces.includes(sn)) namespaces.push(sn);
+  }
+  const selfSummary = mode === "shared" ? "/summary" : `/summary/${sanitizeId(actorId)}`;
+  if (!namespaces.includes(selfSummary)) namespaces.push(selfSummary);
+
   const writeList = scopesConfig.writeAccess[actorId]
     ?? scopesConfig.writeAccess["*"];
   if (writeList) {

@@ -236,6 +236,53 @@ describe("resolveWritableNamespaces with peerId", () => {
   });
 });
 
+describe("resolveWritableNamespaces includes strategy namespaces", () => {
+  const emptyCfg = { agentAccess: {}, writeAccess: {} };
+
+  it("per-agent + peerId: includes strategy namespaces for peerId", () => {
+    const ns = resolveWritableNamespaces("+86138xxx", emptyCfg, "per-agent", "+86138xxx");
+    assert.ok(ns.includes("/semantic/_86138xxx"), "semantic");
+    assert.ok(ns.includes("/episodic/_86138xxx"), "episodic");
+    assert.ok(ns.includes("/preferences/_86138xxx"), "preferences");
+    assert.ok(ns.includes("/summary/_86138xxx"), "summary");
+  });
+
+  it("per-agent without peerId: includes strategy namespaces for actorId", () => {
+    const ns = resolveWritableNamespaces("bija", emptyCfg, "per-agent");
+    assert.ok(ns.includes("/semantic/bija"), "semantic");
+    assert.ok(ns.includes("/episodic/bija"), "episodic");
+    assert.ok(ns.includes("/preferences/bija"), "preferences");
+    assert.ok(ns.includes("/summary/bija"), "summary");
+  });
+
+  it("shared mode: includes flat strategy namespaces", () => {
+    const ns = resolveWritableNamespaces("bija", emptyCfg, "shared");
+    assert.ok(ns.includes("/semantic"), "semantic");
+    assert.ok(ns.includes("/episodic"), "episodic");
+    assert.ok(ns.includes("/preferences"), "preferences");
+    assert.ok(ns.includes("/summary"), "summary");
+  });
+
+  it("isScopeWritable allows own strategy namespace", () => {
+    assert.ok(isScopeWritable("ou_xxx", "/semantic/ou_xxx", emptyCfg, "per-agent", "ou_xxx"));
+    assert.ok(isScopeWritable("ou_xxx", "/episodic/ou_xxx", emptyCfg, "per-agent", "ou_xxx"));
+    assert.ok(isScopeWritable("ou_xxx", "/preferences/ou_xxx", emptyCfg, "per-agent", "ou_xxx"));
+    assert.ok(isScopeWritable("ou_xxx", "/summary/ou_xxx", emptyCfg, "per-agent", "ou_xxx"));
+  });
+
+  it("cross-actor: cannot write to another actor's strategy namespace", () => {
+    assert.ok(!isScopeWritable("actorA", "/semantic/actorB", emptyCfg, "per-agent"));
+    assert.ok(!isScopeWritable("actorA", "/episodic/actorB", emptyCfg, "per-agent"));
+  });
+
+  it("no duplicates when writeAccess also includes a strategy ns", () => {
+    const cfg = { agentAccess: {}, writeAccess: { bija: ["user:bija:semantic"] } };
+    const ns = resolveWritableNamespaces("bija", cfg, "per-agent");
+    const semanticCount = ns.filter(n => n === "/semantic/bija").length;
+    assert.equal(semanticCount, 1, "no duplicate /semantic/bija");
+  });
+});
+
 describe("resolveWildcardPrefixes", () => {
   it("returns /users/ prefix for user:* scope", () => {
     const cfg = { agentAccess: { employee: ["user:*"] }, writeAccess: {} };
