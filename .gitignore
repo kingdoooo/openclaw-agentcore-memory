@@ -3,6 +3,6 @@ dist/
 .agentcore-sync.json
 *.tgz
 .DS_Store
-CLAUDE.md
+
 docs/blog-openclaw-customer-facing.md
 docs/blog-memory-first-principles.md
