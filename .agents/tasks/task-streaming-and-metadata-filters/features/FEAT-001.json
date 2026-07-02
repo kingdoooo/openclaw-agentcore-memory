@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Structured Metadata Filtering - Add metadataFilters support to client, tools (recall, search), auto-recall, and config",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "1. In src/client.ts: Define MetadataFilterValue and MetadataFilter interfaces. Add metadataFilters?: MetadataFilter[] to SearchOptions and ListRecordsOptions interfaces. In retrieveMemoryRecords(), pass metadataFilters to RetrieveMemoryRecordsCommand's searchCriteria.metadataFilters field. In listMemoryRecords(), pass metadataFilters to ListMemoryRecordsCommand's metadataFilters field.",
     "2. In src/config.ts: Add autoRecallMetadataFilters field to PluginConfig (optional array of {key, operator, value} objects). Add to DEFAULTS as undefined. Parse from env var AGENTCORE_AUTO_RECALL_METADATA_FILTERS (JSON string) and raw config in resolveConfig().",
@@ -27,5 +27,5 @@
     "Run `npx tsx --test src/*.test.ts` and confirm existing tests still pass"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "bun-types was referenced in tsconfig.json types but not installed; added to devDependencies to fix pre-existing typecheck failure. SDK OperatorType only has EQUALS_TO/EXISTS/NOT_EXISTS currently, used 'as any' cast for metadataFilters to support future operators (NOT_EQUALS_TO, GREATER_THAN, LESS_THAN, AFTER, BEFORE) that the API may accept. ListMemoryRecordsInput in the current SDK does not have metadataFilters field, also used 'as any' cast for forward compatibility."
 }
