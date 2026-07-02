@@ -1,6 +1,7 @@
 import type { AgentCoreClient } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToNamespace, scopeToString, isScopeWritable } from "../scopes.js";
+import { buildRecordMetadata } from "../metadata-filter.js";
 
 export function createStoreTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined, getAgentId?: () => string) {
   return {
@@ -34,6 +35,16 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
           items: { type: "string" },
           description: "Optional tags for categorization",
         },
+        metadata: {
+          type: "object",
+          description:
+            "Optional structured attributes (e.g. priority, department, channel) attached to the record. Only keys declared as indexed/schema keys are stored; unknown keys and values outside a configured allowedValues set are dropped. Ignored when metadata filtering is disabled.",
+        },
+        strictMetadata: {
+          type: "object",
+          description:
+            "Optional strictly-consistent (deterministic) classifier values, copied verbatim for keys configured as strict keys. Ignored when metadata filtering is disabled.",
+        },
       },
       required: ["content"],
     },
@@ -45,6 +56,8 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
       const scopeStr = (params.scope as string)
         ?? (peerId ? `user:${peerId}` : "global");
       const tags = (params.tags as string[]) ?? [];
+      const userMeta = params.metadata as Record<string, string | number | string[]> | undefined;
+      const strictMeta = params.strictMetadata as Record<string, string> | undefined;
 
       const scope = parseScope(scopeStr);
       const namespace = scopeToNamespace(scope);
@@ -58,19 +71,31 @@ export function createStoreTool(client: AgentCoreClient, config: PluginConfig, g
         };
       }
 
+      // Base metadata attached today (category/importance/scope/source/tags/userId).
+      const baseMetadata: Record<string, string> = {
+        category,
+        importance: String(importance),
+        scope: scopeStr,
+        source: "manual",
+        ...(tags.length > 0 ? { tags: JSON.stringify(tags) } : {}),
+        ...(peerId ? { userId: peerId } : {}),
+      };
+
+      // When metadata filtering is enabled, merge user-supplied structured +
+      // strictly-consistent metadata onto the base via the single validated
+      // path; otherwise keep today's base metadata unchanged (Requirement 14.2).
+      // buildRecordMetadata drops unknown keys and allowedValues-rejected values
+      // (retaining all other keys) rather than failing the store (Requirement 16.2).
+      const metadata = config.metadata.enabled
+        ? buildRecordMetadata(baseMetadata, userMeta, strictMeta, config.metadata)
+        : baseMetadata;
+
       try {
         const result = await client.batchCreateRecords([
           {
             content,
             namespaces: [namespace],
-            metadata: {
-              category,
-              importance: String(importance),
-              scope: scopeStr,
-              source: "manual",
-              ...(tags.length > 0 ? { tags: JSON.stringify(tags) } : {}),
-              ...(peerId ? { userId: peerId } : {}),
-            },
+            metadata,
           },
         ]);
 

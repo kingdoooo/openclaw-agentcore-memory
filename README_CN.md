@@ -183,6 +183,108 @@ openclaw agentcore-status
 | `AGENTCORE_FILE_SYNC_ENABLED` | `fileSyncEnabled` |
 | `AGENTCORE_SHOW_SCORES` | `showScores` |
 
+## 结构化元数据过滤
+
+结构化元数据过滤允许调用方在写入时给记录附加结构化属性（优先级、部门、渠道、标签、时间范围），并在读取时应用 `metadataFilters`，在**已授权的 namespace 内部**进一步收窄结果。它在现有 namespace/scope 隔离之上叠加精度——**绝不会扩大**访问范围。
+
+> **默认惰性关闭。** 除非 `metadata.enabled` 为 `true`，否则功能不生效。关闭时，所有读写路径的行为与今天**完全一致**——本次更新完全向后兼容。
+
+### 供给由外部负责（插件从不供给）
+
+AWS 要求可过滤的**索引键（indexed keys）**必须在**创建** Memory 资源时声明（`CreateMemory.indexedKeys`），且**索引键一旦创建便无法删除**。本插件**不**负责供给：它从不调用 `CreateMemory` 或 `UpdateMemory`。运营者需在创建 Memory 时自行声明 `indexedKeys` 和各策略的元数据 schema。
+
+启动时（当 `metadata.enabled` 为 `true`），插件执行一次**只读**的 Memory 描述调用（`GetMemory`），将资源已声明的索引键与你的配置对比，对每个缺失的键记录警告并继续运行。如果配置无效，插件会记录错误并将功能视为关闭（fail-safe 安全降级）。
+
+**第 1 步 —— 创建 Memory 时声明索引键和元数据 schema**（示例，按实际情况调整）：
+
+```bash
+aws bedrock-agentcore-control create-memory \
+  --name "openclaw_memory" \
+  --description "Shared memory for OpenClaw agents" \
+  --event-expiry-duration 90 \
+  --indexed-keys \
+    '{"key":"priority","type":"STRING"}' \
+    '{"key":"department","type":"STRING"}' \
+    '{"key":"channel","type":"STRING"}' \
+    '{"key":"tags","type":"STRINGLIST"}' \
+  --memory-strategies '<...你的策略，含各策略 metadataSchema...>' \
+  --region us-west-2
+```
+
+> 索引键：**每个 Memory 最多 10 个**，类型为 `STRING | STRINGLIST | NUMBER`。**一旦创建便不可变**（之后可通过 `UpdateMemory` 新增，但永远无法删除）。严格一致键（strict keys）在策略的 `metadataSchema` 中通过 `extractionType: "STRICTLY_CONSISTENT"` 声明。
+
+### 配置
+
+在插件配置（`plugins.entries.memory-agentcore.config.metadata`）中启用并描述你的键：
+
+```json5
+{
+  metadata: {
+    enabled: true,                     // 主开关（默认 false）
+    indexedKeys: [                     // 必须与 CreateMemory 时声明的一致（<=10）
+      { key: "priority",   type: "STRING" },
+      { key: "department", type: "STRING" },
+      { key: "channel",    type: "STRING" },
+      { key: "tags",       type: "STRINGLIST" }
+    ],
+    strictKeys: ["department"],        // indexedKeys 的子集，仅限 STRING，每策略 <=3 个
+    dropUnindexedFilters: true,        // true = 本地丢弃未知键的过滤器；false = 透传给 AWS 判定
+    defaultRecallFilters: [            // recall / auto-recall 时自动应用
+      { key: "userId", operator: "EQUALS_TO", value: "current" }
+    ],
+    schemaByStrategy: {                // 各策略元数据 schema（文档/校验用）
+      SEMANTIC: [
+        { key: "priority", type: "STRING", extractionType: "LLM_INFERRED",
+          definition: "记录的紧急程度", allowedValues: ["low","normal","high","critical"] },
+        { key: "department", type: "STRING", extractionType: "STRICTLY_CONSISTENT" }
+      ]
+    }
+  }
+}
+```
+
+| 配置字段 | 说明 |
+|---------|------|
+| `metadata.enabled` | 主开关。`false`（默认）= 现有行为，功能惰性关闭 |
+| `metadata.indexedKeys` | 声明的可过滤键（`{ key, type }`），最多 10 个；必须与 Memory 资源一致 |
+| `metadata.strictKeys` | 索引键的子集，作为确定性（逐字保存）键；必须为 `STRING`，每策略最多 3 个 |
+| `metadata.dropUnindexedFilters` | `true` = 本地丢弃引用未知键的过滤器；`false` = 透传给 AWS 判定 |
+| `metadata.defaultRecallFilters` | 每次 recall / auto-recall 自动应用的过滤器（仅 raw 配置） |
+| `metadata.schemaByStrategy` | 各策略的元数据 schema 条目（仅 raw 配置） |
+
+**环境变量**（标量/列表字段；复杂对象仅能通过 raw 配置设置）：
+
+| 变量 | 对应字段 | 格式 |
+|------|---------|------|
+| `AGENTCORE_METADATA_ENABLED` | `metadata.enabled` | `true` / `false` |
+| `AGENTCORE_METADATA_INDEXED_KEYS` | `metadata.indexedKeys` | 逗号分隔的 `key:type`（如 `priority:STRING,tags:STRINGLIST`） |
+| `AGENTCORE_METADATA_STRICT_KEYS` | `metadata.strictKeys` | 逗号分隔列表（如 `department,channel`） |
+| `AGENTCORE_METADATA_DROP_UNINDEXED_FILTERS` | `metadata.dropUnindexedFilters` | `true` / `false` |
+
+> `schemaByStrategy` 和 `defaultRecallFilters` 是对象/数组，只能通过 raw 插件配置设置，无法用环境变量。
+
+### 过滤语义
+
+- **每次查询最多 5 个过滤器**，以 **AND** 逻辑组合。候选按确定性顺序组装——先 `defaultRecallFilters`，再用户 `filters`，最后时间边界——超出第 5 个的部分以原因 `exceeds_max_5_filters` 丢弃。
+- **支持的操作符**：`EQUALS_TO`、`CONTAINS`、`EXISTS`、`NOT_EXISTS`、`GREATER_THAN`、`GREATER_THAN_OR_EQUALS`、`LESS_THAN`、`LESS_THAN_OR_EQUALS`、`BEFORE`、`AFTER`。省略时自动推断（无值时为 `EXISTS`，有值时为 `EQUALS_TO`）。无效的操作符/值组合在任何网络调用前于本地丢弃，而非交由 AWS 报错。
+- **系统时间戳过滤**：`created_after` / `created_before` 便捷参数映射为系统键 `x-amz-agentcore-memory-createdAt` 上的 `AFTER`/`BEFORE`（归一化为 UTC ISO-8601）。系统时间戳键**无需**声明任何索引键即可过滤。
+
+### 限制
+
+- **索引键**：每个 Memory 资源最多 **10** 个；**一旦创建不可删除**。
+- **严格键**：每策略最多 **3** 个；必须为 `STRING` 类型且同时是索引键；**`SUMMARY` 策略不支持**。
+- **allowedValues**：每个键最多 **10** 个取值。
+
+### 新增工具参数
+
+| 工具 | 新增参数 |
+|------|---------|
+| `agentcore_store` | `metadata`（结构化/自由属性）和 `strictMetadata`（确定性值，逐字保存）。未知键及超出 `allowedValues` 的值会被丢弃——存储仍然成功 |
+| `agentcore_recall` | `filters`（`{ key, operator?, value? }` 数组，最多 5 个 AND 组合）、`created_after`、`created_before` |
+| `agentcore_search` | `filters`、`created_after`、`created_before` |
+
+构造过程中被丢弃的过滤器（超过上限、未索引键、无效操作符/值）会在工具的 `details.dropped` 载荷中呈现，便于调用方了解原因。当 `metadata.enabled` 为 `false` 时，所有这些参数都被忽略。
+
 ## AWS 凭证与权限
 
 支持 AWS SDK 凭证链（按优先级）：
@@ -211,7 +313,7 @@ openclaw agentcore-status
 }
 ```
 
-**控制面**（仅在 Agent 自动创建 Memory 资源时需要）：
+**控制面**（仅在 Agent 自动创建 Memory 资源时，或启用结构化元数据过滤时需要——启动校验会调用只读 `GetMemory`）：
 ```json
 {
   "Effect": "Allow",
@@ -224,6 +326,8 @@ openclaw agentcore-status
   "Resource": "*"
 }
 ```
+
+> 启用元数据过滤时，插件只需上述权限块中的只读 `bedrock-agentcore-control:GetMemory` 动作（用于启动时对比已声明的索引键）。它绝不会自行调用 `CreateMemory`/`UpdateMemory`。
 
 ## 工具
 

@@ -1,0 +1,29 @@
+{
+  "pbtResults": {
+    "3.1 Property test: cap invariant": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969541198
+    },
+    "3.2 Property test: survivor structural validity (AND soundness, structural)": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969544095
+    },
+    "3.3 Property test: determinism and dedup of survivors": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969548013
+    },
+    "3.4 Property test: strict-value fidelity": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969551924
+    },
+    "3.5 Property test: disabled no-op": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969554417
+    },
+    "3.6 Property test: timestamp UTC normalization": {
+      "status": "passed",
+      "lastRunTimestamp": 1782969558705
+    }
+  },
+  "executionHistory": {}
+}
