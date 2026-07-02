@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "fix",
   "description": "Address review issues: shard iterator expiration handling, exponential backoff with jitter, inferFilterValue numeric string misclassification, consumer start failure state, and basic unit tests",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "1. In src/streaming.ts: Detect ExpiredIteratorException in the poll catch block and re-initialize the shard iterator for that shard instead of silently swallowing the error.",
     "2. In src/streaming.ts: Add exponential backoff with jitter on consecutive poll errors per shard to avoid amplifying throttling.",
@@ -26,5 +26,5 @@
     "Run `npx tsx --test src/*.test.ts` and confirm all tests pass"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "All 100 tests pass (78 existing + 22 new). inferFilterValue is now exported for testing. The backoff uses a simple skip mechanism per poll interval that decrements error count gradually. The startError field is exposed through getStatus() and the streaming tool automatically includes it in the status response."
 }
