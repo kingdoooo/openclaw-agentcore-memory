@@ -36,6 +36,11 @@ export interface PluginConfig {
   fileSyncPaths: string[];
   maxRetries: number;
   timeoutMs: number;
+  autoRecallMetadataFilters?: Array<{ key: string; operator: string; value: string }>;
+  streamingEnabled: boolean;
+  streamingKinesisStreamName?: string;
+  streamingKinesisStreamArn?: string;
+  streamingContentLevel: string;
 }
 
 const DEFAULTS: PluginConfig = {
@@ -65,6 +70,11 @@ const DEFAULTS: PluginConfig = {
   fileSyncPaths: [],
   maxRetries: 3,
   timeoutMs: 10000,
+  autoRecallMetadataFilters: undefined,
+  streamingEnabled: false,
+  streamingKinesisStreamName: undefined,
+  streamingKinesisStreamArn: undefined,
+  streamingContentLevel: "FULL_CONTENT",
 };
 
 function str(
@@ -125,6 +135,25 @@ function parseCommaSeparated(
   }
   if (Array.isArray(raw)) return raw.filter((s): s is string => typeof s === "string" && s !== "");
   return fallback;
+}
+
+function parseMetadataFilters(
+  env: string | undefined,
+  raw: unknown,
+): Array<{ key: string; operator: string; value: string }> | undefined {
+  if (env !== undefined && env !== "") {
+    try {
+      const parsed = JSON.parse(env);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Invalid JSON, ignore
+    }
+    return undefined;
+  }
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw as Array<{ key: string; operator: string; value: string }>;
+  }
+  return undefined;
 }
 
 export function resolveConfig(
@@ -247,6 +276,30 @@ export function resolveConfig(
       env.AGENTCORE_TIMEOUT_MS,
       raw.timeoutMs,
       DEFAULTS.timeoutMs,
+    ),
+    autoRecallMetadataFilters: parseMetadataFilters(
+      env.AGENTCORE_AUTO_RECALL_METADATA_FILTERS,
+      raw.autoRecallMetadataFilters,
+    ),
+    streamingEnabled: bool(
+      env.AGENTCORE_STREAMING_ENABLED,
+      raw.streamingEnabled,
+      DEFAULTS.streamingEnabled,
+    ),
+    streamingKinesisStreamName: str(
+      env.AGENTCORE_STREAMING_KINESIS_STREAM_NAME,
+      raw.streamingKinesisStreamName,
+      undefined,
+    ),
+    streamingKinesisStreamArn: str(
+      env.AGENTCORE_STREAMING_KINESIS_STREAM_ARN,
+      raw.streamingKinesisStreamArn,
+      undefined,
+    ),
+    streamingContentLevel: str(
+      env.AGENTCORE_STREAMING_CONTENT_LEVEL,
+      raw.streamingContentLevel,
+      DEFAULTS.streamingContentLevel,
     ),
   };
 }

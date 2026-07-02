@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "Address review issues: shard iterator expiration handling, exponential backoff with jitter, inferFilterValue numeric string misclassification, consumer start failure state, and basic unit tests",
+  "status": "completed",
+  "steps": [
+    "1. In src/streaming.ts: Detect ExpiredIteratorException in the poll catch block and re-initialize the shard iterator for that shard instead of silently swallowing the error.",
+    "2. In src/streaming.ts: Add exponential backoff with jitter on consecutive poll errors per shard to avoid amplifying throttling.",
+    "3. In src/tools/recall.ts: Fix inferFilterValue to only use numberValue for GREATER_THAN/LESS_THAN operators; otherwise prefer stringValue. Pass operator context to inferFilterValue.",
+    "4. In src/streaming.ts: Track start failure state and expose it through getStatus() so the streaming tool can report the actual issue.",
+    "5. In src/index.ts: Nullify streamConsumer on start failure OR expose error state.",
+    "6. Add unit tests for convertSimplifiedFilters and inferFilterValue in a test file."
+  ],
+  "acceptance_criteria": [
+    "ExpiredIteratorException triggers shard iterator re-initialization",
+    "Poll errors use exponential backoff with jitter",
+    "inferFilterValue only returns numberValue for GREATER_THAN/LESS_THAN operators",
+    "String values like '2026' are treated as stringValue when operator is EQUALS_TO",
+    "Consumer start failure is exposed through getStatus()",
+    "Unit tests pass for convertSimplifiedFilters and inferFilterValue",
+    "npm run typecheck passes",
+    "npx tsx --test src/*.test.ts passes"
+  ],
+  "verification": [
+    "Run `npm run typecheck` and confirm zero errors",
+    "Run `npx tsx --test src/*.test.ts` and confirm all tests pass"
+  ],
+  "blocked_reason": null,
+  "findings": "All 100 tests pass (78 existing + 22 new). inferFilterValue is now exported for testing. The backoff uses a simple skip mechanism per poll interval that decrements error count gradually. The startError field is exposed through getStatus() and the streaming tool automatically includes it in the status response."
+}

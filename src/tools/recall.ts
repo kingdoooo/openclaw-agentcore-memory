@@ -1,4 +1,4 @@
-import type { AgentCoreClient } from "../client.js";
+import type { AgentCoreClient, MetadataFilter, MetadataFilterValue } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToSearchNamespaces, isScopeReadable, filterNamespacesByStrategy, resolveAccessibleNamespaces, buildSessionNamespaces } from "../scopes.js";
 import { filterByScoreGap } from "../score-filter.js";
@@ -37,6 +37,19 @@ export function createRecallTool(
           description:
             "Memory strategy filter: SEMANTIC, USER_PREFERENCE, EPISODIC, SUMMARY",
         },
+        filters: {
+          type: "array",
+          description:
+            "Metadata filters for structured retrieval. Each filter: {key, operator, value}. Operators: EQUALS_TO, NOT_EQUALS_TO, GREATER_THAN, LESS_THAN, AFTER, BEFORE",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string", description: "Metadata key to filter on" },
+              operator: { type: "string", description: "Filter operator" },
+              value: { type: "string", description: "Filter value (string, number as string, or ISO datetime)" },
+            },
+          },
+        },
       },
       required: ["query"],
     },
@@ -53,6 +66,10 @@ export function createRecallTool(
       const peerId = getPeerId?.();
       const actorId = getActorId();
       const agentId = getAgentId?.();
+
+      // Parse metadata filters
+      const rawFilters = params.filters as Array<{ key: string; operator: string; value: string }> | undefined;
+      const metadataFilters = convertSimplifiedFilters(rawFilters);
 
       let allNamespaces: string[];
       if (params.scope) {
@@ -90,6 +107,7 @@ export function createRecallTool(
               query,
               namespace: ns,
               topK: limit,
+              metadataFilters,
             }),
           ),
         );
@@ -135,4 +153,42 @@ export function createRecallTool(
       }
     },
   };
+}
+
+/** Convert simplified {key, operator, value} filters to AWS SDK MetadataFilter format */
+export function convertSimplifiedFilters(
+  filters: Array<{ key: string; operator: string; value: string }> | undefined,
+): MetadataFilter[] | undefined {
+  if (!filters || filters.length === 0) return undefined;
+  return filters.map((f) => ({
+    left: { metadataKey: f.key },
+    operator: f.operator as MetadataFilter["operator"],
+    right: { metadataValue: inferFilterValue(f.value, f.operator) },
+  }));
+}
+
+/** Infer the MetadataFilterValue type from a string value and operator context */
+export function inferFilterValue(value: string, operator?: string): MetadataFilterValue {
+  // Check if it's an ISO datetime (basic heuristic) - check before number to avoid
+  // misclassifying date-like strings
+  if (/^\d{4}-\d{2}-\d{2}(T|\s)/.test(value)) {
+    return { dateTimeValue: value };
+  }
+  // Only infer numberValue for numeric comparison operators (GREATER_THAN, LESS_THAN)
+  // For other operators (EQUALS_TO, NOT_EQUALS_TO), prefer stringValue to avoid
+  // misclassifying values like "2026" or "404" that happen to parse as numbers
+  if (operator === "GREATER_THAN" || operator === "LESS_THAN") {
+    const num = Number(value);
+    if (!Number.isNaN(num) && value.trim() !== "") {
+      return { numberValue: num };
+    }
+  }
+  // For AFTER/BEFORE operators, attempt date-only format as well
+  if (operator === "AFTER" || operator === "BEFORE") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+      return { dateTimeValue: value.trim() + "T00:00:00Z" };
+    }
+  }
+  // Default to string
+  return { stringValue: value };
 }

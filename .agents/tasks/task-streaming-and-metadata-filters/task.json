@@ -1,0 +1,7 @@
+{
+  "task_id": "task-streaming-and-metadata-filters",
+  "task_description": "Add two new AgentCore Memory features: (1) Structured Metadata Filtering with metadataFilters in client, recall/search tools, and auto-recall config; (2) Memory Record Streaming via Kinesis consumer with streaming tool and CLI command.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

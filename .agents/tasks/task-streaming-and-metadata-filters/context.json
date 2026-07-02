@@ -1,0 +1,27 @@
+{
+  "project_type": "OpenClaw plugin (TypeScript ESM)",
+  "language": "TypeScript",
+  "build_system": "tsc via npm scripts, no bundler",
+  "test_framework": "Node built-in test runner via `npx tsx --test src/*.test.ts`",
+  "build_command": "npm run typecheck",
+  "test_command": "npx tsx --test src/*.test.ts",
+  "verification_instructions": "Run `npm run typecheck` to validate types compile cleanly. Run `npx tsx --test src/*.test.ts` for unit tests.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/openclaw-agentcore-memory && npm install",
+  "environment_constraints": "Network available for npm installs. No AWS credentials available so cannot run integration tests. Verification is type-checking only.",
+  "contribution_requirements": "ESM modules with .js extension imports. TypeScript strict mode. All new features default off. Graceful degradation pattern. Tools return {content: [{type:'text', text: JSON.stringify(...)}], details: {...}}. Git push with --no-verify.",
+  "key_patterns": "Tool factories: createXxxTool(client, config, getActorId, ...) returning {name, label, description, parameters, execute}. Config: resolveConfig(env, raw) merges env > raw > defaults. Client wraps AWS SDK BedrockAgentCoreClient. Module-level state variables. Service lifecycle via api.registerService({start, stop}). CLI via api.registerCli(). Hooks: api.on('before_prompt_build'), api.on('agent_end').",
+  "relevant_files": [
+    "src/index.ts",
+    "src/config.ts",
+    "src/client.ts",
+    "src/tools/recall.ts",
+    "src/tools/search.ts",
+    "src/tools/stats.ts",
+    "src/tools/store.ts",
+    "src/adaptive-retrieval.ts",
+    "package.json",
+    "tsconfig.json"
+  ],
+  "directory_structure": "src/ - main source: index.ts (plugin entry), client.ts (AWS SDK wrapper), config.ts (config resolution), scopes.ts (namespace logic), identity.ts (session parsing), noise-filter.ts, adaptive-retrieval.ts, score-filter.ts, file-sync.ts. src/tools/ - 8 tool files (recall, store, forget, correct, search, stats, episodes, share). tests/ - test directory. skills/ - OpenClaw skills. docs/ - documentation."
+}

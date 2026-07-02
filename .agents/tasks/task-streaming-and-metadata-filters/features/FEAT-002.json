@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Memory Record Streaming - Add Kinesis-based streaming consumer, streaming tool, CLI command, config, and integration into plugin lifecycle",
+  "status": "completed",
+  "steps": [
+    "1. Update package.json: Add @aws-sdk/client-kinesis dependency (^3.1004.0). Run npm install.",
+    "2. In src/config.ts: Add streaming config fields to PluginConfig interface (streamingEnabled: boolean, streamingKinesisStreamName?: string, streamingKinesisStreamArn?: string, streamingContentLevel: string). Add defaults (streamingEnabled=false, streamingContentLevel='FULL_CONTENT'). Add env var parsing in resolveConfig() for AGENTCORE_STREAMING_ENABLED, AGENTCORE_STREAMING_KINESIS_STREAM_NAME, AGENTCORE_STREAMING_KINESIS_STREAM_ARN, AGENTCORE_STREAMING_CONTENT_LEVEL.",
+    "3. Create src/streaming.ts: Define event types (MemoryStreamEvent with eventType MemoryRecordCreated|MemoryRecordUpdated|MemoryRecordDeleted|StreamingEnabled, eventTime, memoryId, memoryRecordId, namespaces, createdAt, memoryStrategyId, memoryStrategyType, metadata, memoryRecordText). Implement MemoryStreamConsumer class using @aws-sdk/client-kinesis (GetShardIteratorCommand, GetRecordsCommand, ListShardsCommand) with start/stop lifecycle, polling loop, event parsing. Support callbacks: onRecordCreated, onRecordUpdated, onRecordDeleted. Maintain internal state: isRunning, isPaused, eventCount, lastEventTime, recentEvents (ring buffer of last 50). Include optional stats cache invalidation callback. Follow project patterns: ESM, .js imports, graceful error handling.",
+    "4. Create src/tools/streaming.ts: Implement createStreamingTool() factory following same pattern as other tools. Parameters: action (status|recent_events|pause|resume). status: return connection state, event count, last event time, isPaused. recent_events: return last N events from ring buffer. pause: pause consumer. resume: resume consumer. Accept MemoryStreamConsumer reference via closure/getter.",
+    "5. In src/index.ts: Import streaming module and tool. Add module-level variable for MemoryStreamConsumer instance. In register(): if config.streamingEnabled and stream name/ARN configured, create MemoryStreamConsumer. Register agentcore_streaming tool (with not-ready guard like other tools). In service start: call consumer.start() if configured. In service stop: call consumer.stop(). Add 'agentcore-streaming' CLI command that shows streaming status (connected, event count, last event time, paused state)."
+  ],
+  "acceptance_criteria": [
+    "@aws-sdk/client-kinesis is listed in package.json dependencies",
+    "PluginConfig includes all 4 streaming config fields",
+    "resolveConfig handles 4 streaming env vars correctly",
+    "src/streaming.ts exports MemoryStreamConsumer class with start/stop/pause/resume methods",
+    "src/streaming.ts correctly parses memoryStreamEvent JSON from Kinesis records",
+    "src/streaming.ts maintains recent events ring buffer and event counter",
+    "src/tools/streaming.ts exports createStreamingTool factory",
+    "agentcore_streaming tool supports status, recent_events, pause, resume actions",
+    "src/index.ts creates and manages MemoryStreamConsumer lifecycle",
+    "agentcore-streaming CLI command is registered",
+    "Streaming is disabled by default (streamingEnabled=false)",
+    "npm run typecheck passes with no errors"
+  ],
+  "verification": [
+    "Run `npm run typecheck` and confirm zero errors",
+    "Run `npx tsx --test src/*.test.ts` and confirm existing tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": "Used client.invalidateStatsCache() (not clearStatsCache) for stats cache invalidation callback. Streaming tool registered with the same not-ready guard pattern as other tools for consistency. All 78 existing tests pass."
+}
