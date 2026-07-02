@@ -1,6 +1,7 @@
-import type { AgentCoreClient } from "../client.js";
+import type { AgentCoreClient, MetadataFilter } from "../client.js";
 import type { PluginConfig } from "../config.js";
 import { parseScope, scopeToSearchNamespaces, scopeToString, isScopeReadable, filterNamespacesByStrategy } from "../scopes.js";
+import { convertSimplifiedFilters } from "./recall.js";
 
 export function createSearchTool(client: AgentCoreClient, config: PluginConfig, getActorId: () => string, getPeerId?: () => string | undefined, getAgentId?: () => string) {
   return {
@@ -25,12 +26,29 @@ export function createSearchTool(client: AgentCoreClient, config: PluginConfig, 
           type: "number",
           description: "Max results per namespace (default: 20)",
         },
+        filters: {
+          type: "array",
+          description:
+            "Metadata filters for structured retrieval. Each filter: {key, operator, value}. Operators: EQUALS_TO, NOT_EQUALS_TO, GREATER_THAN, LESS_THAN, AFTER, BEFORE",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string", description: "Metadata key to filter on" },
+              operator: { type: "string", description: "Filter operator" },
+              value: { type: "string", description: "Filter value (string, number as string, or ISO datetime)" },
+            },
+          },
+        },
       },
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
       const scopeStr = (params.scope as string) ?? "global";
       const strategy = params.strategy as string | undefined;
       const maxResults = (params.max_results as number) ?? 20;
+
+      // Parse metadata filters
+      const rawFilters = params.filters as Array<{ key: string; operator: string; value: string }> | undefined;
+      const metadataFilters = convertSimplifiedFilters(rawFilters);
 
       const scope = parseScope(scopeStr);
       const allNamespaces = scopeToSearchNamespaces(scope, config.namespaceMode);
@@ -55,6 +73,7 @@ export function createSearchTool(client: AgentCoreClient, config: PluginConfig, 
             client.listMemoryRecords({
               namespace: ns,
               maxResults,
+              metadataFilters,
             }),
           ),
         );

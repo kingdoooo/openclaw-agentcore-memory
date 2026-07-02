@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Structured Metadata Filtering - Add metadataFilters support to client, tools (recall, search), auto-recall, and config",
+  "status": "in_progress",
+  "steps": [
+    "1. In src/client.ts: Define MetadataFilterValue and MetadataFilter interfaces. Add metadataFilters?: MetadataFilter[] to SearchOptions and ListRecordsOptions interfaces. In retrieveMemoryRecords(), pass metadataFilters to RetrieveMemoryRecordsCommand's searchCriteria.metadataFilters field. In listMemoryRecords(), pass metadataFilters to ListMemoryRecordsCommand's metadataFilters field.",
+    "2. In src/config.ts: Add autoRecallMetadataFilters field to PluginConfig (optional array of {key, operator, value} objects). Add to DEFAULTS as undefined. Parse from env var AGENTCORE_AUTO_RECALL_METADATA_FILTERS (JSON string) and raw config in resolveConfig().",
+    "3. In src/tools/recall.ts: Add a 'filters' parameter to the tool's parameters schema (type: array, items: {key, operator, value}). In execute(), parse the simplified filter format {key, operator, value} and convert to MetadataFilter[] format (left: {metadataKey: key}, operator, right: {metadataValue: ...}). Pass metadataFilters to client.retrieveMemoryRecords() calls.",
+    "4. In src/tools/search.ts: Add the same 'filters' parameter. In execute(), parse and convert filters, pass metadataFilters to client.listMemoryRecords() calls.",
+    "5. In src/index.ts: In the before_prompt_build hook's auto-recall section, check if config.autoRecallMetadataFilters is set. If so, convert to MetadataFilter[] and pass to retrieveMemoryRecords() calls."
+  ],
+  "acceptance_criteria": [
+    "MetadataFilter and MetadataFilterValue interfaces are exported from src/client.ts",
+    "SearchOptions and ListRecordsOptions include optional metadataFilters field",
+    "retrieveMemoryRecords passes metadataFilters to the SDK command when provided",
+    "listMemoryRecords passes metadataFilters to the SDK command when provided",
+    "agentcore_recall tool accepts an optional 'filters' array parameter",
+    "agentcore_search tool accepts an optional 'filters' array parameter",
+    "PluginConfig includes autoRecallMetadataFilters field",
+    "AGENTCORE_AUTO_RECALL_METADATA_FILTERS env var is parsed in resolveConfig",
+    "Auto-recall in before_prompt_build applies configured metadata filters",
+    "npm run typecheck passes with no errors"
+  ],
+  "verification": [
+    "Run `npm run typecheck` and confirm zero errors",
+    "Run `npx tsx --test src/*.test.ts` and confirm existing tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

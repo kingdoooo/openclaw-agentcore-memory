@@ -19,11 +19,25 @@ export interface EventInput {
   metadata?: Record<string, string>;
 }
 
+export interface MetadataFilterValue {
+  stringValue?: string;
+  numberValue?: number;
+  dateTimeValue?: string;
+  stringListValue?: string[];
+}
+
+export interface MetadataFilter {
+  left: { metadataKey: string };
+  operator: "EQUALS_TO" | "NOT_EQUALS_TO" | "GREATER_THAN" | "LESS_THAN" | "AFTER" | "BEFORE";
+  right: { metadataValue: MetadataFilterValue };
+}
+
 export interface SearchOptions {
   query: string;
   namespace: string;
   topK?: number;
   strategyId?: string;
+  metadataFilters?: MetadataFilter[];
 }
 
 export interface ListRecordsOptions {
@@ -31,6 +45,7 @@ export interface ListRecordsOptions {
   strategyId?: string;
   maxResults?: number;
   nextToken?: string;
+  metadataFilters?: MetadataFilter[];
 }
 
 export interface MemoryRecordResult {
@@ -115,6 +130,9 @@ export class AgentCoreClient {
         ...(options.strategyId
           ? { memoryStrategyId: options.strategyId }
           : {}),
+        ...(options.metadataFilters && options.metadataFilters.length > 0
+          ? { metadataFilters: options.metadataFilters as any }
+          : {}),
       },
     });
 
@@ -125,7 +143,7 @@ export class AgentCoreClient {
   async listMemoryRecords(
     options: ListRecordsOptions,
   ): Promise<{ records: MemoryRecordResult[]; nextToken?: string }> {
-    const command = new ListMemoryRecordsCommand({
+    const input: Record<string, unknown> = {
       memoryId: this.memoryId,
       namespace: options.namespace,
       ...(options.strategyId
@@ -133,7 +151,11 @@ export class AgentCoreClient {
         : {}),
       ...(options.maxResults ? { maxResults: options.maxResults } : {}),
       ...(options.nextToken ? { nextToken: options.nextToken } : {}),
-    });
+      ...(options.metadataFilters && options.metadataFilters.length > 0
+        ? { metadataFilters: options.metadataFilters }
+        : {}),
+    };
+    const command = new ListMemoryRecordsCommand(input as any);
 
     const response = await this.client.send(command);
     return {

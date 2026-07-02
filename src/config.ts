@@ -36,6 +36,7 @@ export interface PluginConfig {
   fileSyncPaths: string[];
   maxRetries: number;
   timeoutMs: number;
+  autoRecallMetadataFilters?: Array<{ key: string; operator: string; value: string }>;
 }
 
 const DEFAULTS: PluginConfig = {
@@ -65,6 +66,7 @@ const DEFAULTS: PluginConfig = {
   fileSyncPaths: [],
   maxRetries: 3,
   timeoutMs: 10000,
+  autoRecallMetadataFilters: undefined,
 };
 
 function str(
@@ -125,6 +127,25 @@ function parseCommaSeparated(
   }
   if (Array.isArray(raw)) return raw.filter((s): s is string => typeof s === "string" && s !== "");
   return fallback;
+}
+
+function parseMetadataFilters(
+  env: string | undefined,
+  raw: unknown,
+): Array<{ key: string; operator: string; value: string }> | undefined {
+  if (env !== undefined && env !== "") {
+    try {
+      const parsed = JSON.parse(env);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Invalid JSON, ignore
+    }
+    return undefined;
+  }
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw as Array<{ key: string; operator: string; value: string }>;
+  }
+  return undefined;
 }
 
 export function resolveConfig(
@@ -247,6 +268,10 @@ export function resolveConfig(
       env.AGENTCORE_TIMEOUT_MS,
       raw.timeoutMs,
       DEFAULTS.timeoutMs,
+    ),
+    autoRecallMetadataFilters: parseMetadataFilters(
+      env.AGENTCORE_AUTO_RECALL_METADATA_FILTERS,
+      raw.autoRecallMetadataFilters,
     ),
   };
 }

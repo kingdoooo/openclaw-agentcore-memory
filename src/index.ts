@@ -1,5 +1,7 @@
 import { resolveConfig, type PluginConfig } from "./config.js";
 import { AgentCoreClient } from "./client.js";
+import type { MemoryRecordResult } from "./client.js";
+import { convertSimplifiedFilters } from "./tools/recall.js";
 import {
   parseScope,
   scopeToNamespace,
@@ -22,7 +24,6 @@ import { createSearchTool } from "./tools/search.js";
 import { createStatsTool } from "./tools/stats.js";
 import { createEpisodesTool } from "./tools/episodes.js";
 import { createShareTool } from "./tools/share.js";
-import type { MemoryRecordResult } from "./client.js";
 
 /** Extract text from content that may be string or [{type,text}] array (OpenClaw format) */
 function extractText(content: any): string {
@@ -206,12 +207,14 @@ const plugin = {
         );
 
         // Parallel search across all accessible namespaces
+        const autoRecallFilters = convertSimplifiedFilters(config.autoRecallMetadataFilters);
         const results = await Promise.allSettled(
           namespaces.map((ns) =>
             client!.retrieveMemoryRecords({
               query: promptStr,
               namespace: ns,
               topK: config.autoRecallTopK,
+              metadataFilters: autoRecallFilters,
             }),
           ),
         );
