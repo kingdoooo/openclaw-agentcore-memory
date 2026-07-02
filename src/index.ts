@@ -1,4 +1,4 @@
-import { resolveConfig, type PluginConfig } from "./config.js";
+import { resolveConfig, validateMetadataConfig, type PluginConfig } from "./config.js";
 import { AgentCoreClient } from "./client.js";
 import {
   parseScope,
@@ -22,6 +22,7 @@ import { createSearchTool } from "./tools/search.js";
 import { createStatsTool } from "./tools/stats.js";
 import { createEpisodesTool } from "./tools/episodes.js";
 import { createShareTool } from "./tools/share.js";
+import { buildFilters } from "./metadata-filter.js";
 import type { MemoryRecordResult } from "./client.js";
 
 /** Extract text from content that may be string or [{type,text}] array (OpenClaw format) */
@@ -99,6 +100,60 @@ const plugin = {
     api.registerService({
       id: "agentcore-memory",
       async start() {
+        // --- Task 9.1: read-only startup validation of metadata filtering ---
+        // Runs before the data-plane connection check. Config validation is
+        // offline; the indexed-key comparison is a read-only control-plane call
+        // that degrades gracefully (never blocks startup).
+        if (config.metadata.enabled) {
+          const { valid, errors } = validateMetadataConfig(config.metadata);
+          if (!valid) {
+            // Fail-safe (Requirement 12.7): disable metadata filtering at runtime
+            // by mutating the shared `config.metadata.enabled` flag, which every
+            // already-registered tool/hook closure consults live at call time.
+            // This preserves existing behavior instead of sending bad requests,
+            // and skips the indexed-key comparison below.
+            config.metadata.enabled = false;
+            api.logger.warn(
+              `[agentcore] [metadata] invalid configuration — disabling metadata filtering (fail-safe). Errors: ${errors.join("; ")}`,
+            );
+          } else {
+            // Valid config: read-only comparison of the memory's declared indexed
+            // keys against config.metadata.indexedKeys (Requirements 13.1–13.3).
+            // Never provisions/mutates the memory resource (Requirement 13.4).
+            try {
+              const declaredKeys = await client!.describeMemoryIndexedKeys();
+              if (declaredKeys === null) {
+                // Graceful degradation (Requirement 16.3): could not read the
+                // resource (control-plane unavailable / permission / API error).
+                api.logger.warn(
+                  "[agentcore] [metadata] could not read the provisioned memory's indexed keys (control-plane unavailable or GetMemory failed); continuing without verification",
+                );
+              } else {
+                const declaredSet = new Set(declaredKeys);
+                const missing = config.metadata.indexedKeys
+                  .map((k) => k.key)
+                  .filter((k) => !declaredSet.has(k));
+                for (const key of missing) {
+                  api.logger.warn(
+                    `[agentcore] [metadata] configured indexed key "${key}" is not declared on the provisioned memory resource; filters on this key may be rejected by AWS`,
+                  );
+                }
+                if (missing.length === 0) {
+                  api.logger.info(
+                    `[agentcore] [metadata] all ${config.metadata.indexedKeys.length} configured indexed key(s) present on the provisioned memory`,
+                  );
+                }
+              }
+            } catch (err) {
+              // Defensive: describeMemoryIndexedKeys should not throw, but never
+              // let startup validation crash the service (Requirement 16.3).
+              api.logger.warn(
+                `[agentcore] [metadata] indexed-key verification skipped: ${err}`,
+              );
+            }
+          }
+        }
+
         try {
           await client!.listMemoryRecords({
             namespace: "/global",
@@ -205,6 +260,23 @@ const plugin = {
           `[agentcore] [recall] start: actorId=${actorId}, sessionId=${sid}, promptLen=${promptStr.length}, namespaces=${namespaces.length} [${namespaces.join(", ")}]`,
         );
 
+        // Build config-driven default metadata filters (applied identically to
+        // every fanned-out namespace call). When metadata filtering is disabled
+        // this yields an empty list, leaving the emitted commands unchanged.
+        const metadataFilters = config.metadata.enabled
+          ? buildFilters({
+              enabled: true,
+              defaultFilters: config.metadata.defaultRecallFilters,
+              indexedKeys: config.metadata.indexedKeys,
+              dropUnindexedFilters: config.metadata.dropUnindexedFilters,
+            }).filters
+          : [];
+        if (metadataFilters.length > 0) {
+          api.logger.debug(
+            `[agentcore] [recall] applying ${metadataFilters.length} default metadata filter(s)`,
+          );
+        }
+
         // Parallel search across all accessible namespaces
         const results = await Promise.allSettled(
           namespaces.map((ns) =>
@@ -212,6 +284,7 @@ const plugin = {
               query: promptStr,
               namespace: ns,
               topK: config.autoRecallTopK,
+              ...(metadataFilters.length > 0 ? { metadataFilters } : {}),
             }),
           ),
         );
@@ -366,6 +439,34 @@ const plugin = {
             api.logger.debug(`[agentcore] [capture]   ${m.role}: ${txt}...`);
           }
 
+          // Build event metadata. Today's behavior attaches userId/agentId when
+          // a peer is present. When metadata filtering is enabled, additionally
+          // map the runtime identity values to the configured strictKeys so that
+          // strictly-consistent grouping works during extraction (Requirement 3.1).
+          const baseCaptureMetadata: Record<string, string> | undefined = peerId
+            ? { userId: peerId, agentId }
+            : undefined;
+
+          let captureMetadata = baseCaptureMetadata;
+          if (config.metadata.enabled) {
+            // Runtime strict values available at capture time, keyed by the name
+            // a strictKey would use. Only keys with a corresponding value are attached.
+            const runtimeStrictValues: Record<string, string | undefined> = {
+              agentId,
+              userId: peerId,
+              peerId,
+              actorId,
+              sessionId,
+            };
+            const strictMetadata: Record<string, string> = {};
+            for (const key of config.metadata.strictKeys) {
+              const value = runtimeStrictValues[key];
+              if (value !== undefined) strictMetadata[key] = value;
+            }
+            const merged = { ...(baseCaptureMetadata ?? {}), ...strictMetadata };
+            captureMetadata = Object.keys(merged).length > 0 ? merged : undefined;
+          }
+
           await client!.createEvent({
             actorId,
             sessionId,
@@ -375,7 +476,7 @@ const plugin = {
             })),
             // Best-effort: AWS does not propagate custom metadata to extracted Memory Records.
             // This metadata is only on the raw Event, useful for tracing and debugging.
-            ...(peerId ? { metadata: { userId: peerId, agentId } } : {}),
+            ...(captureMetadata ? { metadata: captureMetadata } : {}),
           });
 
           api.logger.info(

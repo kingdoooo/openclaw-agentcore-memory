@@ -15,12 +15,14 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "^3.1004.0",
+    "@aws-sdk/client-bedrock-agentcore-control": "^3.1078.0",
     "@aws-sdk/credential-providers": "^3.1004.0"
   },
   "peerDependencies": {
     "openclaw": ">=0.2.0"
   },
   "devDependencies": {
+    "fast-check": "^4.8.0",
     "typescript": "^5.7.0"
   },
   "overrides": {

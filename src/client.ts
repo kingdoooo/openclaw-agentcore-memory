@@ -10,7 +10,9 @@ import {
   BatchUpdateMemoryRecordsCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import type { MemoryMetadataFilterExpression } from "@aws-sdk/client-bedrock-agentcore";
 import type { PluginConfig } from "./config.js";
+import type { MetadataFilter } from "./metadata-filter.js";
 
 export interface EventInput {
   actorId: string;
@@ -24,6 +26,7 @@ export interface SearchOptions {
   namespace: string;
   topK?: number;
   strategyId?: string;
+  metadataFilters?: MetadataFilter[];
 }
 
 export interface ListRecordsOptions {
@@ -31,6 +34,7 @@ export interface ListRecordsOptions {
   strategyId?: string;
   maxResults?: number;
   nextToken?: string;
+  metadataFilters?: MetadataFilter[];
 }
 
 export interface MemoryRecordResult {
@@ -59,10 +63,20 @@ export class AgentCoreClient {
   private memoryId: string;
   private statsCache = new Map<string, StatsCacheEntry>();
   private statsCacheTtlMs: number;
+  // Retained for lazily constructing the read-only control-plane client used by
+  // describeMemoryIndexedKeys() (see Task 9 startup validation).
+  private awsRegion: string;
+  private awsProfile?: string;
+  private maxRetries: number;
+  private timeoutMs: number;
 
   constructor(config: PluginConfig) {
     this.memoryId = config.memoryId;
     this.statsCacheTtlMs = config.statsCacheTtlMs;
+    this.awsRegion = config.awsRegion;
+    this.awsProfile = config.awsProfile;
+    this.maxRetries = config.maxRetries;
+    this.timeoutMs = config.timeoutMs;
     this.client = new BedrockAgentCoreClient({
       region: config.awsRegion,
       credentials: config.awsProfile
@@ -73,6 +87,62 @@ export class AgentCoreClient {
         requestTimeout: config.timeoutMs,
       },
     });
+  }
+
+  /**
+   * Read-only inspection of the provisioned memory resource's declared indexed
+   * keys, via the CONTROL-PLANE `GetMemory` API
+   * (`@aws-sdk/client-bedrock-agentcore-control`), which is a separate service
+   * from the data-plane `BedrockAgentCoreClient` used everywhere else here.
+   *
+   * Used by the startup validation in `index.ts` to compare the memory's
+   * declared indexed keys against `config.metadata.indexedKeys`
+   * (Requirements 13.1, 13.3).
+   *
+   * This method NEVER creates or mutates the memory resource — it issues only
+   * the read-only `GetMemoryCommand` (Requirement 13.4).
+   *
+   * Graceful degradation (Requirement 16.3): if the control-plane SDK cannot be
+   * loaded, credentials/permissions are missing, or `GetMemory` fails for any
+   * reason, this returns `null` (meaning "could not determine") instead of
+   * throwing, so plugin startup and the data path are never disrupted.
+   *
+   * @returns the declared indexed-key names, or `null` when they cannot be read.
+   */
+  async describeMemoryIndexedKeys(): Promise<string[] | null> {
+    let controlClient: { send: (cmd: unknown) => Promise<unknown>; destroy: () => void } | undefined;
+    try {
+      // Dynamic import so a missing/unavailable control-plane SDK degrades
+      // gracefully (caught below) rather than breaking module load.
+      const { BedrockAgentCoreControlClient, GetMemoryCommand } = await import(
+        "@aws-sdk/client-bedrock-agentcore-control"
+      );
+      controlClient = new BedrockAgentCoreControlClient({
+        region: this.awsRegion,
+        credentials: this.awsProfile
+          ? fromNodeProviderChain({ profile: this.awsProfile })
+          : fromNodeProviderChain(),
+        maxAttempts: this.maxRetries,
+        requestHandler: { requestTimeout: this.timeoutMs },
+      }) as unknown as { send: (cmd: unknown) => Promise<unknown>; destroy: () => void };
+
+      const response = (await controlClient.send(
+        new GetMemoryCommand({ memoryId: this.memoryId }),
+      )) as { memory?: { indexedKeys?: Array<{ key?: string }> } };
+
+      return (response.memory?.indexedKeys ?? [])
+        .map((k) => k?.key)
+        .filter((k): k is string => typeof k === "string" && k !== "");
+    } catch {
+      // Control-plane SDK/permission unavailable or GetMemory failed.
+      return null;
+    } finally {
+      try {
+        controlClient?.destroy();
+      } catch {
+        /* ignore disposal errors */
+      }
+    }
   }
 
   async createEvent(input: EventInput): Promise<string> {
@@ -115,6 +185,9 @@ export class AgentCoreClient {
         ...(options.strategyId
           ? { memoryStrategyId: options.strategyId }
           : {}),
+        ...(options.metadataFilters && options.metadataFilters.length > 0
+          ? { metadataFilters: toSdkFilters(options.metadataFilters) }
+          : {}),
       },
     });
 
@@ -133,6 +206,9 @@ export class AgentCoreClient {
         : {}),
       ...(options.maxResults ? { maxResults: options.maxResults } : {}),
       ...(options.nextToken ? { nextToken: options.nextToken } : {}),
+      ...(options.metadataFilters && options.metadataFilters.length > 0
+        ? { metadataFilters: toSdkFilters(options.metadataFilters) }
+        : {}),
     });
 
     const response = await this.client.send(command);
@@ -272,6 +348,17 @@ export class AgentCoreClient {
   dispose(): void {
     this.client.destroy();
   }
+}
+
+// Reconcile our module's broader FilterOperator union with the installed SDK's
+// narrower `OperatorType` TS enum. The AgentCore data plane accepts the full
+// operator set (CONTAINS / BEFORE / AFTER / comparison operators); the SDK's
+// type definitions lag behind that capability, so we cast at this single
+// boundary. Filters are validated/normalized upstream in metadata-filter.ts.
+function toSdkFilters(
+  filters: MetadataFilter[],
+): MemoryMetadataFilterExpression[] {
+  return filters as unknown as MemoryMetadataFilterExpression[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

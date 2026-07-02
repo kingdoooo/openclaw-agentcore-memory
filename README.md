@@ -183,6 +183,108 @@ All fields support env var override:
 | `AGENTCORE_FILE_SYNC_ENABLED` | `fileSyncEnabled` |
 | `AGENTCORE_SHOW_SCORES` | `showScores` |
 
+## Structured Metadata Filtering
+
+Structured metadata filtering lets callers attach structured attributes (priority, department, channel, tags, time bounds) to records on write, then apply `metadataFilters` at read time to narrow results **within** an already-authorized namespace. It layers precision on top of the existing namespace/scope isolation — it never widens access.
+
+> **Inert by default.** The feature is off unless `metadata.enabled` is `true`. When disabled, every read and write path behaves **exactly** as it does today — this update is fully backward-compatible.
+
+### Provisioning is external (the plugin never provisions)
+
+AWS requires filterable **indexed keys** to be declared when the memory resource is **created** (`CreateMemory.indexedKeys`), and **indexed keys cannot be removed once created**. This plugin does **not** own provisioning: it never calls `CreateMemory` or `UpdateMemory`. Operators declare `indexedKeys` and the per-strategy metadata schema themselves at memory-creation time.
+
+At startup (when `metadata.enabled` is `true`) the plugin performs a **read-only** memory description (`GetMemory`) to compare the resource's declared indexed keys against your config, logging a warning for each missing key and continuing. If your config is invalid, the plugin logs the errors and treats the feature as disabled (fail-safe).
+
+**Step 1 — declare indexed keys and metadata schema when you create the memory** (example; adjust to your setup):
+
+```bash
+aws bedrock-agentcore-control create-memory \
+  --name "openclaw_memory" \
+  --description "Shared memory for OpenClaw agents" \
+  --event-expiry-duration 90 \
+  --indexed-keys \
+    '{"key":"priority","type":"STRING"}' \
+    '{"key":"department","type":"STRING"}' \
+    '{"key":"channel","type":"STRING"}' \
+    '{"key":"tags","type":"STRINGLIST"}' \
+  --memory-strategies '<...your strategies, with per-strategy metadataSchema...>' \
+  --region us-west-2
+```
+
+> Indexed keys: **max 10 per memory**, types `STRING | STRINGLIST | NUMBER`. They are **immutable once created** (can be added later via `UpdateMemory`, but never removed). Strictly-consistent keys are declared in a strategy's `metadataSchema` with `extractionType: "STRICTLY_CONSISTENT"`.
+
+### Configuration
+
+Enable and describe your keys in the plugin config (`plugins.entries.memory-agentcore.config.metadata`):
+
+```json5
+{
+  metadata: {
+    enabled: true,                     // master switch (default false)
+    indexedKeys: [                     // must match what was declared at CreateMemory (<=10)
+      { key: "priority",   type: "STRING" },
+      { key: "department", type: "STRING" },
+      { key: "channel",    type: "STRING" },
+      { key: "tags",       type: "STRINGLIST" }
+    ],
+    strictKeys: ["department"],        // subset of indexedKeys, STRING only, <=3 per strategy
+    dropUnindexedFilters: true,        // true = drop filters on unknown keys; false = pass through to AWS
+    defaultRecallFilters: [            // applied automatically on recall / auto-recall
+      { key: "userId", operator: "EQUALS_TO", value: "current" }
+    ],
+    schemaByStrategy: {                // per-strategy metadata schema (docs/validation)
+      SEMANTIC: [
+        { key: "priority", type: "STRING", extractionType: "LLM_INFERRED",
+          definition: "Urgency of the record", allowedValues: ["low","normal","high","critical"] },
+        { key: "department", type: "STRING", extractionType: "STRICTLY_CONSISTENT" }
+      ]
+    }
+  }
+}
+```
+
+| Config field | Description |
+|--------------|-------------|
+| `metadata.enabled` | Master switch. `false` (default) = current behavior, feature inert |
+| `metadata.indexedKeys` | Declared filterable keys (`{ key, type }`), max 10; must match the memory resource |
+| `metadata.strictKeys` | Subset of indexed keys treated as deterministic (verbatim); must be `STRING`, max 3 per strategy |
+| `metadata.dropUnindexedFilters` | `true` = drop filters referencing unknown keys locally; `false` = pass them through for AWS to evaluate |
+| `metadata.defaultRecallFilters` | Filters applied automatically on every recall / auto-recall (raw config only) |
+| `metadata.schemaByStrategy` | Per-strategy metadata schema entries (raw config only) |
+
+**Environment variables** (scalar/list fields; complex objects come from raw config only):
+
+| Variable | Config Field | Format |
+|----------|-------------|--------|
+| `AGENTCORE_METADATA_ENABLED` | `metadata.enabled` | `true` / `false` |
+| `AGENTCORE_METADATA_INDEXED_KEYS` | `metadata.indexedKeys` | comma list of `key:type` (e.g. `priority:STRING,tags:STRINGLIST`) |
+| `AGENTCORE_METADATA_STRICT_KEYS` | `metadata.strictKeys` | comma list (e.g. `department,channel`) |
+| `AGENTCORE_METADATA_DROP_UNINDEXED_FILTERS` | `metadata.dropUnindexedFilters` | `true` / `false` |
+
+> `schemaByStrategy` and `defaultRecallFilters` are objects/arrays and can only be set via the raw plugin config, not env vars.
+
+### Filter semantics
+
+- **Max 5 filters per query**, combined with **AND** logic. Candidates are assembled in a deterministic order — config `defaultRecallFilters` first, then user `filters`, then timestamp bounds — and anything beyond the fifth is dropped with reason `exceeds_max_5_filters`.
+- **Supported operators**: `EQUALS_TO`, `CONTAINS`, `EXISTS`, `NOT_EXISTS`, `GREATER_THAN`, `GREATER_THAN_OR_EQUALS`, `LESS_THAN`, `LESS_THAN_OR_EQUALS`, `BEFORE`, `AFTER`. Operator is inferred when omitted (`EXISTS` when no value, `EQUALS_TO` when a value is present). Invalid operator/value combinations are dropped locally before any network call rather than failing at AWS.
+- **System timestamp filters**: the `created_after` / `created_before` convenience parameters map to `BEFORE`/`AFTER` on the system key `x-amz-agentcore-memory-createdAt` (normalized to UTC ISO-8601). System timestamp keys are filterable **without** declaring any indexed key.
+
+### Limits
+
+- **Indexed keys**: max **10** per memory resource; **immutable once created** (never removed).
+- **Strict keys**: max **3** per strategy; must be type `STRING` and also be an indexed key; **not supported on the `SUMMARY` strategy**.
+- **allowedValues**: max **10** entries per key.
+
+### New tool parameters
+
+| Tool | New parameters |
+|------|----------------|
+| `agentcore_store` | `metadata` (structured/free attributes) and `strictMetadata` (deterministic values, stored verbatim). Unknown keys and values outside a configured `allowedValues` set are dropped — the store still succeeds |
+| `agentcore_recall` | `filters` (array of `{ key, operator?, value? }`, max 5 AND-combined), `created_after`, `created_before` |
+| `agentcore_search` | `filters`, `created_after`, `created_before` |
+
+Filters that are dropped during construction (over the cap, unindexed key, invalid operator/value) are surfaced in the tool's `details.dropped` payload so callers can see why. All parameters are ignored when `metadata.enabled` is `false`.
+
 ## AWS Credentials & Permissions
 
 Uses the AWS SDK credential chain (in order):
@@ -211,7 +313,7 @@ Uses the AWS SDK credential chain (in order):
 }
 ```
 
-**Control plane** (only if agent creates Memory resources during setup):
+**Control plane** (only if agent creates Memory resources during setup, or if structured metadata filtering is enabled — startup validation calls read-only `GetMemory`):
 ```json
 {
   "Effect": "Allow",
@@ -224,6 +326,8 @@ Uses the AWS SDK credential chain (in order):
   "Resource": "*"
 }
 ```
+
+> With metadata filtering enabled, the plugin only needs the read-only `bedrock-agentcore-control:GetMemory` action from the block above (to compare declared indexed keys at startup). It never calls `CreateMemory`/`UpdateMemory` on its own.
 
 ## Tools
 

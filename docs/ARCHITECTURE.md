@@ -12,6 +12,8 @@
 4. [三层插件协同 — 提示词构建流程](#4-三层插件协同--提示词构建流程)
 5. [memory-agentcore 接口设计与独特功能](#5-memory-agentcore-接口设计与独特功能)
 6. [多 Agent 共享 Memory 详解](#6-多-agent-共享-memory-详解)
+7. [面客模式：用户级记忆隔离](#7-面客模式用户级记忆隔离)
+8. [结构化元数据过滤](#8-结构化元数据过滤structured-metadata-filtering)
 
 ---
 
@@ -782,3 +784,54 @@ peerId 从 sessionKey 通过正则 `:(?:dm|direct):([^:]+)$` 自动提取（兼�
 - `ou_alice123` → `ou_alice123`（不变）
 
 来源: `src/identity.ts:parsePeerIdFromSessionKey`, `src/scopes.ts:sanitizeId, resolveAccessibleNamespaces`
+
+
+---
+
+## 8. 结构化元数据过滤（Structured Metadata Filtering）
+
+来源: `src/metadata-filter.ts`, `src/config.ts`, `src/tools/{store,recall,search}.ts`, `src/index.ts`
+
+结构化元数据过滤在现有 namespace/scope 隔离之上叠加一层**命名空间内部**的精度控制：写入时给记录附加结构化属性，读取时用 `metadataFilters` 收窄结果。它与访问控制正交——过滤器只会**收窄**已授权的候选集，绝不扩大访问范围。
+
+> **默认惰性关闭**：`metadata.enabled = false`（默认）时所有读写路径行为与今天完全一致，完全向后兼容。
+
+### 8.1 供给边界：插件从不调用 CreateMemory/UpdateMemory
+
+AWS 要求可过滤的**索引键**在 `CreateMemory` 时声明，且**不可删除**。本插件将索引键与各策略元数据 schema 视为**外部拥有的配置**（由运营者在创建 Memory 时声明），插件只负责运行时路径：
+
+| 责任 | 归属 |
+|------|------|
+| 声明 `indexedKeys` + 策略 `metadataSchema` | 运营者（`CreateMemory`，外部） |
+| 写入时附加元数据、读取时应用过滤器 | 插件运行时（`metadata-filter.ts`） |
+| 启动时只读校验索引键是否存在（`GetMemory`）并告警 | 插件（`src/index.ts`） |
+| `CreateMemory` / `UpdateMemory` 供给 | **插件从不调用** |
+
+配置无效时，插件记录错误并将功能视为关闭（fail-safe）；索引键缺失时仅告警并继续。
+
+### 8.2 单一过滤构造路径
+
+所有工具/hook 都经由 `metadata-filter.ts` 这一纯模块构造过滤器，使得操作符校验、5 条上限、类型强制转换集中在一处：
+
+| 函数 | 职责 |
+|------|------|
+| `buildFilters` | 组装候选（默认→用户→时间戳）→ 规范化 → 去重 → 上限 5 条（AND），返回 `{ filters, dropped }` |
+| `normalizeOne` | 单个输入 → 线格式过滤器或丢弃原因（`empty_key`/`unsupported_operator`/`missing_value`/`operator_value_type_mismatch`/`key_not_indexed`） |
+| `buildRecordMetadata` | 合并 base + 结构化 + 严格键元数据，丢弃未知键与超出 `allowedValues` 的值 |
+
+### 8.3 语义与限制
+
+- **每次查询最多 5 个过滤器**，AND 组合；超出部分以 `exceeds_max_5_filters` 丢弃。
+- **操作符**：`EQUALS_TO`、`CONTAINS`、`EXISTS`、`NOT_EXISTS`、`GREATER_THAN[_OR_EQUALS]`、`LESS_THAN[_OR_EQUALS]`、`BEFORE`、`AFTER`；省略时推断（无值 `EXISTS`，有值 `EQUALS_TO`）。
+- **系统时间戳**：`created_after`/`created_before` → 系统键 `x-amz-agentcore-memory-createdAt` 上的 `AFTER`/`BEFORE`（UTC ISO-8601），无需声明索引键。
+- **限制**：索引键每 Memory 最多 10 个且不可删除；严格键每策略最多 3 个、必须为 `STRING` 且是索引键、`SUMMARY` 策略不支持；`allowedValues` 每键最多 10 个。
+
+### 8.4 工具参数扩展
+
+| 工具 | 新增参数 |
+|------|---------|
+| `agentcore_store` | `metadata`、`strictMetadata`（严格键逐字保存；未知键/非法值丢弃但存储仍成功） |
+| `agentcore_recall` | `filters`、`created_after`、`created_before` |
+| `agentcore_search` | `filters`、`created_after`、`created_before` |
+
+被丢弃的过滤器（含原因）通过工具 `details.dropped` 呈现。完整的配置字段、环境变量与示例见 [README](../README.md#structured-metadata-filtering) / [README_CN](../README_CN.md#结构化元数据过滤)。
