@@ -163,20 +163,31 @@ export function convertSimplifiedFilters(
   return filters.map((f) => ({
     left: { metadataKey: f.key },
     operator: f.operator as MetadataFilter["operator"],
-    right: { metadataValue: inferFilterValue(f.value) },
+    right: { metadataValue: inferFilterValue(f.value, f.operator) },
   }));
 }
 
-/** Infer the MetadataFilterValue type from a string value */
-function inferFilterValue(value: string): MetadataFilterValue {
-  // Check if it's a number
-  const num = Number(value);
-  if (!Number.isNaN(num) && value.trim() !== "") {
-    return { numberValue: num };
-  }
-  // Check if it's an ISO datetime (basic heuristic)
-  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+/** Infer the MetadataFilterValue type from a string value and operator context */
+export function inferFilterValue(value: string, operator?: string): MetadataFilterValue {
+  // Check if it's an ISO datetime (basic heuristic) - check before number to avoid
+  // misclassifying date-like strings
+  if (/^\d{4}-\d{2}-\d{2}(T|\s)/.test(value)) {
     return { dateTimeValue: value };
+  }
+  // Only infer numberValue for numeric comparison operators (GREATER_THAN, LESS_THAN)
+  // For other operators (EQUALS_TO, NOT_EQUALS_TO), prefer stringValue to avoid
+  // misclassifying values like "2026" or "404" that happen to parse as numbers
+  if (operator === "GREATER_THAN" || operator === "LESS_THAN") {
+    const num = Number(value);
+    if (!Number.isNaN(num) && value.trim() !== "") {
+      return { numberValue: num };
+    }
+  }
+  // For AFTER/BEFORE operators, attempt date-only format as well
+  if (operator === "AFTER" || operator === "BEFORE") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+      return { dateTimeValue: value.trim() + "T00:00:00Z" };
+    }
   }
   // Default to string
   return { stringValue: value };

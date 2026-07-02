@@ -39,10 +39,13 @@ export interface StreamConsumerStatus {
   lastEventTime: string | null;
   streamName: string | undefined;
   streamArn: string | undefined;
+  startError: string | null;
 }
 
 const RING_BUFFER_SIZE = 50;
 const POLL_INTERVAL_MS = 5000;
+const MAX_BACKOFF_MS = 60000;
+const BASE_BACKOFF_MS = 1000;
 
 export class MemoryStreamConsumer {
   private kinesisClient: KinesisClient;
@@ -56,6 +59,8 @@ export class MemoryStreamConsumer {
   private _recentEvents: MemoryStreamEvent[] = [];
   private _pollTimer: ReturnType<typeof setTimeout> | null = null;
   private _shardIterators: Map<string, string> = new Map();
+  private _shardErrorCounts: Map<string, number> = new Map();
+  private _startError: string | null = null;
 
   constructor(config: PluginConfig, callbacks: StreamConsumerCallbacks = {}) {
     this.config = config;
@@ -93,6 +98,7 @@ export class MemoryStreamConsumer {
       lastEventTime: this._lastEventTime,
       streamName: this.config.streamingKinesisStreamName,
       streamArn: this.config.streamingKinesisStreamArn,
+      startError: this._startError,
     };
   }
 
@@ -100,12 +106,14 @@ export class MemoryStreamConsumer {
     if (this._isRunning) return;
     this._isRunning = true;
     this._isPaused = false;
+    this._startError = null;
 
     try {
       await this.initializeShardIterators();
       this.schedulePoll();
     } catch (err) {
       this._isRunning = false;
+      this._startError = String(err);
       throw err;
     }
   }
@@ -118,6 +126,7 @@ export class MemoryStreamConsumer {
       this._pollTimer = null;
     }
     this._shardIterators.clear();
+    this._shardErrorCounts.clear();
   }
 
   pause(): void {
@@ -183,12 +192,34 @@ export class MemoryStreamConsumer {
 
     if (!this._isPaused) {
       for (const [shardId, iterator] of this._shardIterators.entries()) {
+        // Apply backoff: skip this shard if it's in backoff period
+        const errorCount = this._shardErrorCounts.get(shardId) ?? 0;
+        if (errorCount > 0) {
+          const backoffMs = Math.min(
+            BASE_BACKOFF_MS * Math.pow(2, errorCount - 1),
+            MAX_BACKOFF_MS,
+          );
+          // Add jitter: random value between 0 and backoff/2
+          const jitter = Math.random() * (backoffMs / 2);
+          const totalBackoff = backoffMs + jitter;
+          // Use a simple check: only skip if we haven't waited long enough
+          // Since we poll every POLL_INTERVAL_MS, skip this shard if backoff > poll interval
+          if (totalBackoff > POLL_INTERVAL_MS) {
+            // Decrement error count to eventually retry
+            this._shardErrorCounts.set(shardId, Math.max(0, errorCount - 1));
+            continue;
+          }
+        }
+
         try {
           const cmd = new GetRecordsCommand({
             ShardIterator: iterator,
             Limit: 100,
           });
           const response = await this.kinesisClient.send(cmd);
+
+          // Success - reset error count for this shard
+          this._shardErrorCounts.delete(shardId);
 
           // Update shard iterator
           if (response.NextShardIterator) {
@@ -212,13 +243,52 @@ export class MemoryStreamConsumer {
               // Skip unparseable records
             }
           }
-        } catch {
-          // Graceful degradation on poll errors - continue with other shards
+        } catch (err: unknown) {
+          const errorName = (err as { name?: string })?.name ?? "";
+          const errorMessage = String(err);
+
+          if (
+            errorName === "ExpiredIteratorException" ||
+            errorMessage.includes("ExpiredIteratorException")
+          ) {
+            // Re-initialize iterator for this shard
+            try {
+              await this.reinitializeShardIterator(shardId);
+              this._shardErrorCounts.delete(shardId);
+            } catch {
+              // If re-init fails, apply backoff
+              this._shardErrorCounts.set(shardId, (this._shardErrorCounts.get(shardId) ?? 0) + 1);
+            }
+          } else {
+            // Increment error count for exponential backoff
+            this._shardErrorCounts.set(shardId, (this._shardErrorCounts.get(shardId) ?? 0) + 1);
+          }
         }
       }
     }
 
     this.schedulePoll();
+  }
+
+  private async reinitializeShardIterator(shardId: string): Promise<void> {
+    const iteratorCmd = this.config.streamingKinesisStreamArn
+      ? new GetShardIteratorCommand({
+          StreamARN: this.config.streamingKinesisStreamArn,
+          ShardId: shardId,
+          ShardIteratorType: "LATEST",
+        })
+      : new GetShardIteratorCommand({
+          StreamName: this.config.streamingKinesisStreamName,
+          ShardId: shardId,
+          ShardIteratorType: "LATEST",
+        });
+
+    const iteratorResponse = await this.kinesisClient.send(iteratorCmd);
+    if (iteratorResponse.ShardIterator) {
+      this._shardIterators.set(shardId, iteratorResponse.ShardIterator);
+    } else {
+      this._shardIterators.delete(shardId);
+    }
   }
 
   private handleEvent(event: MemoryStreamEvent): void {

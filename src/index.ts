@@ -144,6 +144,8 @@ const plugin = {
             api.logger.info("[agentcore] [streaming] Consumer started");
           } catch (err) {
             api.logger.warn(`[agentcore] [streaming] Failed to start consumer: ${err}`);
+            // Consumer tracks the error state via getStatus().startError
+            // Leave it in place so the streaming tool can report the failure reason
           }
         }
       },
