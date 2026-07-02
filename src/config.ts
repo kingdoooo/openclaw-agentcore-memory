@@ -37,6 +37,10 @@ export interface PluginConfig {
   maxRetries: number;
   timeoutMs: number;
   autoRecallMetadataFilters?: Array<{ key: string; operator: string; value: string }>;
+  streamingEnabled: boolean;
+  streamingKinesisStreamName?: string;
+  streamingKinesisStreamArn?: string;
+  streamingContentLevel: string;
 }
 
 const DEFAULTS: PluginConfig = {
@@ -67,6 +71,10 @@ const DEFAULTS: PluginConfig = {
   maxRetries: 3,
   timeoutMs: 10000,
   autoRecallMetadataFilters: undefined,
+  streamingEnabled: false,
+  streamingKinesisStreamName: undefined,
+  streamingKinesisStreamArn: undefined,
+  streamingContentLevel: "FULL_CONTENT",
 };
 
 function str(
@@ -272,6 +280,26 @@ export function resolveConfig(
     autoRecallMetadataFilters: parseMetadataFilters(
       env.AGENTCORE_AUTO_RECALL_METADATA_FILTERS,
       raw.autoRecallMetadataFilters,
+    ),
+    streamingEnabled: bool(
+      env.AGENTCORE_STREAMING_ENABLED,
+      raw.streamingEnabled,
+      DEFAULTS.streamingEnabled,
+    ),
+    streamingKinesisStreamName: str(
+      env.AGENTCORE_STREAMING_KINESIS_STREAM_NAME,
+      raw.streamingKinesisStreamName,
+      undefined,
+    ),
+    streamingKinesisStreamArn: str(
+      env.AGENTCORE_STREAMING_KINESIS_STREAM_ARN,
+      raw.streamingKinesisStreamArn,
+      undefined,
+    ),
+    streamingContentLevel: str(
+      env.AGENTCORE_STREAMING_CONTENT_LEVEL,
+      raw.streamingContentLevel,
+      DEFAULTS.streamingContentLevel,
     ),
   };
 }

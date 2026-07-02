@@ -24,6 +24,8 @@ import { createSearchTool } from "./tools/search.js";
 import { createStatsTool } from "./tools/stats.js";
 import { createEpisodesTool } from "./tools/episodes.js";
 import { createShareTool } from "./tools/share.js";
+import { MemoryStreamConsumer } from "./streaming.js";
+import { createStreamingTool } from "./tools/streaming.js";
 
 /** Extract text from content that may be string or [{type,text}] array (OpenClaw format) */
 function extractText(content: any): string {
@@ -55,6 +57,7 @@ const NOT_READY_RESPONSE = {
 
 let client: AgentCoreClient | null = null;
 let fileSync: FileSync | null = null;
+let streamConsumer: MemoryStreamConsumer | null = null;
 let ready = false;
 let currentActorId = "default";
 let currentPeerId: string | undefined = undefined;
@@ -96,6 +99,24 @@ const plugin = {
       fileSync = new FileSync(config, client, workspaceDir, api.logger);
     }
 
+    // Initialize streaming consumer
+    if (config.streamingEnabled && (config.streamingKinesisStreamName || config.streamingKinesisStreamArn)) {
+      streamConsumer = new MemoryStreamConsumer(config, {
+        onRecordCreated: (event) => {
+          api.logger.debug(`[agentcore] [streaming] record created: ${event.memoryRecordId}`);
+        },
+        onRecordUpdated: (event) => {
+          api.logger.debug(`[agentcore] [streaming] record updated: ${event.memoryRecordId}`);
+        },
+        onRecordDeleted: (event) => {
+          api.logger.debug(`[agentcore] [streaming] record deleted: ${event.memoryRecordId}`);
+        },
+        onStatsCacheInvalidate: () => {
+          client?.invalidateStatsCache();
+        },
+      });
+    }
+
     // Register service lifecycle with startup validation
     api.registerService({
       id: "agentcore-memory",
@@ -115,9 +136,30 @@ const plugin = {
             `[agentcore] Startup validation failed: ${err}. Tools/hooks disabled, CLI still available.`,
           );
         }
+
+        // Start streaming consumer if configured
+        if (streamConsumer) {
+          try {
+            await streamConsumer.start();
+            api.logger.info("[agentcore] [streaming] Consumer started");
+          } catch (err) {
+            api.logger.warn(`[agentcore] [streaming] Failed to start consumer: ${err}`);
+          }
+        }
       },
       async stop() {
         ready = false;
+
+        // Stop streaming consumer
+        if (streamConsumer) {
+          try {
+            await streamConsumer.stop();
+            api.logger.info("[agentcore] [streaming] Consumer stopped");
+          } catch (err) {
+            api.logger.warn(`[agentcore] [streaming] Error stopping consumer: ${err}`);
+          }
+        }
+
         client?.dispose();
         client = null;
         api.logger.info("[agentcore] Service stopped");
@@ -152,6 +194,16 @@ const plugin = {
         },
       });
     }
+
+    // Register streaming tool separately (has its own not-configured guard)
+    const streamingTool = createStreamingTool(() => streamConsumer);
+    api.registerTool({
+      ...streamingTool,
+      async execute(toolCallId: string, params: Record<string, unknown>) {
+        if (!client || !ready) return NOT_READY_RESPONSE;
+        return streamingTool.execute(toolCallId, params);
+      },
+    });
 
     // --- Hook: Auto-Recall (before_prompt_build) ---
     // Always register — captures actorId for tool permission checks
@@ -764,6 +816,24 @@ const plugin = {
               console.error(`Error: ${err}`);
             }
           });
+
+        prog
+          .command("agentcore-streaming")
+          .description("Show streaming consumer status")
+          .action(async () => {
+            if (!streamConsumer) {
+              console.log("Streaming is not configured.");
+              console.log("  streamingEnabled: false");
+              return;
+            }
+            const status = streamConsumer.getStatus();
+            console.log("AgentCore Streaming Status");
+            console.log(`  Running:    ${status.isRunning}`);
+            console.log(`  Paused:     ${status.isPaused}`);
+            console.log(`  Events:     ${status.eventCount}`);
+            console.log(`  Last event: ${status.lastEventTime ?? "none"}`);
+            console.log(`  Stream:     ${status.streamName ?? status.streamArn ?? "unknown"}`);
+          });
       },
       {
         commands: [
@@ -776,6 +846,7 @@ const plugin = {
           "agentcore-stats",
           "agentcore-sync",
           "agentcore-remember",
+          "agentcore-streaming",
         ],
       },
     );
